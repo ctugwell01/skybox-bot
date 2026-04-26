@@ -8,6 +8,7 @@ const SKYBOX_KEYWORDS = ['skybox', 'sky box', 'get in sky'];
 
 let ws;
 let counter = 1;
+let cooldown = false;
 
 function connect() {
   const url = `ws://${RCON_HOST}:${RCON_PORT}/${RCON_PASS}`;
@@ -22,8 +23,20 @@ function connect() {
     try {
       const msg = JSON.parse(data.toString());
       const text = (msg.Message || '').toLowerCase();
-      if (text) console.log('[MSG]', msg.Message);
+      const channel = (msg.Channel || 0);
+
+      // Only respond to player chat (channel 0), ignore SERVER messages
+      if (channel !== 0) return;
+      if (!text) return;
+
+      console.log('[CHAT]', msg.Message);
+
       if (SKYBOX_KEYWORDS.some(kw => text.includes(kw))) {
+        // Cooldown to prevent spam - only reply once every 10 seconds
+        if (cooldown) return;
+        cooldown = true;
+        setTimeout(() => cooldown = false, 10000);
+
         console.log('Triggered! Sending message...');
         ws.send(JSON.stringify({
           Identifier: counter++,
