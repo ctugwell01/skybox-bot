@@ -1,5 +1,11 @@
-You've pasted the git commands into the file by mistake! 😄
-Clear everything in that editor and paste this instead:
+The index.js file still has my chat message in it instead of the code! Let's fix it:
+
+Go to github.com/ctugwell01/skybox-bot
+Click on index.js
+Click the pencil (edit) icon
+Select all and delete everything
+Paste only this code:
+
 javascriptconst axios = require('axios');
 
 const BM_TOKEN  = process.env.BM_TOKEN;
@@ -10,7 +16,7 @@ const SKYBOX_KEYWORDS = ['skybox', 'sky box', 'how u get in the sky', 'get in sk
 const REPLY_COMMAND   = 'say /view';
 
 if (!BM_TOKEN || !SERVER_ID) {
-  console.error('❌ Missing BM_TOKEN or SERVER_ID environment variables!');
+  console.error('Missing BM_TOKEN or SERVER_ID!');
   process.exit(1);
 }
 
@@ -29,7 +35,7 @@ async function fetchChat() {
     );
     return res.data.data || [];
   } catch (err) {
-    console.error('Error fetching chat:', err.response?.data || err.message);
+    console.error('Error fetching chat:', err.message);
     return [];
   }
 }
@@ -38,17 +44,12 @@ async function sendRcon(command) {
   try {
     await axios.post(
       `https://api.battlemetrics.com/servers/${SERVER_ID}/command`,
-      {
-        data: {
-          type: 'rconCommand',
-          attributes: { command },
-        },
-      },
+      { data: { type: 'rconCommand', attributes: { command } } },
       { headers }
     );
-    console.log(`✅ Sent RCON: ${command}`);
+    console.log('Sent: ' + command);
   } catch (err) {
-    console.error('Error sending RCON:', err.response?.data || err.message);
+    console.error('Error sending RCON:', err.message);
   }
 }
 
@@ -61,14 +62,13 @@ async function poll() {
     if (seenIds.has(id)) continue;
     seenIds.add(id);
     console.log(`[CHAT] ${player}: ${text}`);
-    const triggered = SKYBOX_KEYWORDS.some(kw => text.includes(kw));
-    if (triggered) {
-      console.log(`🎯 Triggered by ${player} — sending /view...`);
+    if (SKYBOX_KEYWORDS.some(kw => text.includes(kw))) {
+      console.log('Triggered! Sending /view...');
       await sendRcon(REPLY_COMMAND);
     }
   }
 }
 
-console.log('🤖 Skybox bot started...');
+console.log('Bot started...');
 setInterval(poll, POLL_MS);
 poll();
