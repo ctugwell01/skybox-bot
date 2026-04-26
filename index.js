@@ -10,17 +10,12 @@ let ws;
 let counter = 1;
 
 function connect() {
-  const url = `ws://${RCON_HOST}:${RCON_PORT}`;
-  console.log('Connecting to', url);
-  ws = new WebSocket(url, { headers: { 'Authorization': RCON_PASS } });
+  const url = `ws://${RCON_HOST}:${RCON_PORT}/${RCON_PASS}`;
+  console.log('Connecting...');
+  ws = new WebSocket(url);
 
   ws.on('open', () => {
-    console.log('Connected! Authenticating...');
-    ws.send(JSON.stringify({
-      Identifier: counter++,
-      Message: RCON_PASS,
-      Name: 'Auth'
-    }));
+    console.log('Connected to Rust RCON!');
   });
 
   ws.on('message', (data) => {
