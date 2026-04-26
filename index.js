@@ -25,14 +25,12 @@ function connect() {
       const text = (msg.Message || '').toLowerCase();
       const channel = (msg.Channel || 0);
 
-      // Only respond to player chat (channel 0), ignore SERVER messages
       if (channel !== 0) return;
       if (!text) return;
 
       console.log('[CHAT]', msg.Message);
 
       if (SKYBOX_KEYWORDS.some(kw => text.includes(kw))) {
-        // Cooldown to prevent spam - only reply once every 10 seconds
         if (cooldown) return;
         cooldown = true;
         setTimeout(() => cooldown = false, 10000);
@@ -40,7 +38,7 @@ function connect() {
         console.log('Triggered! Sending message...');
         ws.send(JSON.stringify({
           Identifier: counter++,
-          Message: 'say To get into the skybox, type /view in chat!',
+          Message: 'say [Ruscar Bot]: To get into the skybox, type /view in chat!',
           Name: 'Bot'
         }));
       }
