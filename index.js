@@ -5,7 +5,6 @@ const SERVER_ID = process.env.SERVER_ID;
 const POLL_MS   = parseInt(process.env.POLL_MS || '5000');
 
 const SKYBOX_KEYWORDS = ['skybox', 'sky box', 'how u get in the sky', 'get in sky'];
-const REPLY_COMMAND   = 'say /view';
 
 if (!BM_TOKEN || !SERVER_ID) {
   console.error('Missing BM_TOKEN or SERVER_ID!');
@@ -22,12 +21,19 @@ const seenIds = new Set();
 async function fetchChat() {
   try {
     const res = await axios.get(
-      `https://api.battlemetrics.com/servers/${SERVER_ID}/relationships/chat`,
-      { headers, params: { 'page[size]': 20 } }
+      `https://api.battlemetrics.com/activity`,
+      {
+        headers,
+        params: {
+          'filter[servers]': SERVER_ID,
+          'filter[types]': 'rcon:chat',
+          'page[size]': 20,
+        }
+      }
     );
     return res.data.data || [];
   } catch (err) {
-    console.error('Error fetching chat:', err.message);
+    console.error('Error fetching chat:', err.response?.status, err.message);
     return [];
   }
 }
@@ -36,12 +42,12 @@ async function sendRcon(command) {
   try {
     await axios.post(
       `https://api.battlemetrics.com/servers/${SERVER_ID}/command`,
-      { data: { type: 'rconCommand', attributes: { command } } },
+      { data: { type: 'rconCommand', attributes: { command, blocked: false } } },
       { headers }
     );
     console.log('Sent: ' + command);
   } catch (err) {
-    console.error('Error sending RCON:', err.message);
+    console.error('Error sending RCON:', err.response?.status, err.message);
   }
 }
 
@@ -49,14 +55,14 @@ async function poll() {
   const messages = await fetchChat();
   for (const msg of messages) {
     const id     = msg.id;
-    const text   = msg.attributes?.message?.toLowerCase() || '';
-    const player = msg.attributes?.name || 'Unknown';
+    const text   = (msg.attributes?.message || '').toLowerCase();
+    const player = msg.attributes?.player || 'Unknown';
     if (seenIds.has(id)) continue;
     seenIds.add(id);
     console.log(`[CHAT] ${player}: ${text}`);
     if (SKYBOX_KEYWORDS.some(kw => text.includes(kw))) {
       console.log('Triggered! Sending /view...');
-      await sendRcon(REPLY_COMMAND);
+      await sendRcon('say /view');
     }
   }
 }
