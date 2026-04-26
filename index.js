@@ -24,10 +24,10 @@ function connect() {
       const text = (msg.Message || '').toLowerCase();
       if (text) console.log('[MSG]', msg.Message);
       if (SKYBOX_KEYWORDS.some(kw => text.includes(kw))) {
-        console.log('Triggered! Sending /view...');
+        console.log('Triggered! Sending message...');
         ws.send(JSON.stringify({
           Identifier: counter++,
-          Message: 'say /view',
+          Message: 'say To get into the skybox, type /view in chat!',
           Name: 'Bot'
         }));
       }
