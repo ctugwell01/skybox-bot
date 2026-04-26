@@ -1,12 +1,4 @@
-The index.js file still has my chat message in it instead of the code! Let's fix it:
-
-Go to github.com/ctugwell01/skybox-bot
-Click on index.js
-Click the pencil (edit) icon
-Select all and delete everything
-Paste only this code:
-
-javascriptconst axios = require('axios');
+const axios = require('axios');
 
 const BM_TOKEN  = process.env.BM_TOKEN;
 const SERVER_ID = process.env.SERVER_ID;
