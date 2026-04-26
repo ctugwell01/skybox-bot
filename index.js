@@ -21,19 +21,14 @@ const seenIds = new Set();
 async function fetchChat() {
   try {
     const res = await axios.get(
-      `https://api.battlemetrics.com/activity`,
-      {
-        headers,
-        params: {
-          'filter[servers]': SERVER_ID,
-          'filter[types]': 'rcon:chat',
-          'page[size]': 20,
-        }
-      }
+      `https://api.battlemetrics.com/servers/${SERVER_ID}/relationships/rconLog`,
+      { headers, params: { 'page[size]': 20 } }
     );
     return res.data.data || [];
   } catch (err) {
     console.error('Error fetching chat:', err.response?.status, err.message);
+    // Log full error details to help debug
+    if (err.response?.data) console.error(JSON.stringify(err.response.data));
     return [];
   }
 }
@@ -54,12 +49,12 @@ async function sendRcon(command) {
 async function poll() {
   const messages = await fetchChat();
   for (const msg of messages) {
-    const id     = msg.id;
-    const text   = (msg.attributes?.message || '').toLowerCase();
-    const player = msg.attributes?.player || 'Unknown';
+    const id   = msg.id;
+    const text = (msg.attributes?.message || msg.attributes?.log || '').toLowerCase();
+    const player = msg.attributes?.player || msg.attributes?.name || 'Unknown';
     if (seenIds.has(id)) continue;
     seenIds.add(id);
-    console.log(`[CHAT] ${player}: ${text}`);
+    if (text) console.log(`[LOG] ${player}: ${text}`);
     if (SKYBOX_KEYWORDS.some(kw => text.includes(kw))) {
       console.log('Triggered! Sending /view...');
       await sendRcon('say /view');
