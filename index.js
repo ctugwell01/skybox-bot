@@ -49,8 +49,8 @@ async function classifyMessage(text) {
 - "skybox" if the player is asking how to get into the skybox or sky area
 - "leader" if the player is asking who is winning, about race positions or leaderboard
 - "portal" if the player is asking which portal to go through, which map the race is on, which track, or which race to join
-- "modtool" if the player is asking for a mod tool, modular car, or a vehicle tool
-- "food" if the player is asking for food, how to eat, or how to get food
+- "modtool" if the player is asking for a mod tool, modular car, vehicle tool, or says things like "can i get a mod tool", "can we have a mod tool", "give me a mod tool", "need a mod tool", "where is the mod tool", "how do i get a mod tool"
+- "food" if the player is asking for food, how to eat, how to get food, or saying they are hungry
 - "none" if it doesn't match any of the above
 
 Reply with ONLY the category word, nothing else.
