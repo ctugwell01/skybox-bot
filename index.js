@@ -99,9 +99,6 @@ function connect() {
     try {
       const msg = JSON.parse(data.toString());
 
-      // Log everything so we can see what's coming through
-      console.log('RAW TYPE:', msg.Type, '| MSG:', data.toString().substring(0, 150));
-
       // Only process Type: Chat messages
       if (msg.Type !== 'Chat') return;
 
@@ -109,13 +106,11 @@ function connect() {
       let inner;
       try { inner = JSON.parse(msg.Message); } catch { return; }
 
-      const channel  = inner.Channel || 0;
       const text     = (inner.Message || '').toLowerCase();
       const username = inner.Username || '';
       const userId   = inner.UserId || '';
 
-      // Only global chat, ignore SERVER
-      if (channel !== 0) return;
+      // Ignore SERVER messages
       if (!text) return;
       if (userId === '0' || username === 'SERVER') return;
 
