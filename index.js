@@ -111,16 +111,14 @@ function connect() {
       if (!raw) return;
 
       const text = extractMessage(raw).toLowerCase();
-
       console.log(`[CHAT] ${player}: ${text}`);
 
-      // Check for slurs first - no player check needed
+      // Check for slurs first
       const isSlur = await checkSlur(text);
       if (isSlur) {
-        const target = player || raw.split(':')[0].trim();
-        console.log(`🚨 Slur detected from ${target} — prisoning!`);
-        sendRcon(`prison ${target}`);
-        sendRcon(`say [Ruscar Bot]: ${target} has been automatically prisoned for using hate speech.`);
+        console.log(`🚨 Slur detected from ${player} — prisoning!`);
+        sendRcon(`prison ${player}`);
+        sendRcon(`say [Ruscar Bot]: ${player} has been automatically prisoned for using hate speech.`);
         return;
       }
 
