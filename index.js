@@ -14,7 +14,6 @@ const COMMANDS = [
   { id: 'none', reply: null }
 ];
 
-// Spam tracking
 const spamTracker = {};
 const SPAM_LIMIT  = 10;
 const SPAM_WINDOW = 5000;
@@ -28,6 +27,7 @@ function isSpamming(userId) {
   if (!spamTracker[userId]) spamTracker[userId] = [];
   spamTracker[userId] = spamTracker[userId].filter(t => now - t < SPAM_WINDOW);
   spamTracker[userId].push(now);
+  console.log(`[SPAM] ${userId} has ${spamTracker[userId].length} messages in window`);
   return spamTracker[userId].length >= SPAM_LIMIT;
 }
 
@@ -132,7 +132,7 @@ function connect() {
 
       console.log(`[CHAT] ${username} (${userId}): ${text}`);
 
-      // Check for spam
+      // Check for spam first — no AI needed, instant
       if (isSpamming(userId)) {
         console.log(`🚨 Spam detected from ${username} — prisoning!`);
         sendRcon(`prison ${userId}`);
