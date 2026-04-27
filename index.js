@@ -18,17 +18,27 @@ const COMMANDS = [
 const spamTracker = {};
 const repeatTracker = {};
 const spamOffences = {};
+const prisoned = new Set();
+
 const SPAM_LIMIT   = 7;
 const SPAM_WINDOW  = 10000;
 const REPEAT_LIMIT = 3;
-const prisoned = new Set();
+const SPAM_TIMERS  = [5, 10, 30];
 
-// Spam offence timers in minutes (index 0 = 1st offence, etc)
-const SPAM_TIMERS = [5, 10, 30];
+// Explicit blocklist
+const BLOCKED_WORDS = [
+  'retard', 'retarded', 'spastic', 'spaz',
+  'nigger', 'nigga', 'faggot', 'fag', 'tranny',
+  'chink', 'kike', 'gook', 'wetback', 'beaner'
+];
 
 let ws;
 let counter = 1;
 let cooldown = false;
+
+function containsBlockedWord(text) {
+  return BLOCKED_WORDS.some(word => text.includes(word));
+}
 
 function isSpamming(userId) {
   const now = Date.now();
@@ -58,7 +68,7 @@ function extractPlayerMessage(raw) {
 function getSpamMinutes(userId) {
   const offence = spamOffences[userId] || 0;
   if (offence < SPAM_TIMERS.length) return SPAM_TIMERS[offence];
-  return null; // permanent
+  return null;
 }
 
 async function sendDiscordAlert(username, userId, reason, offence) {
@@ -73,7 +83,7 @@ async function sendDiscordAlert(username, userId, reason, offence) {
         { name: 'Player', value: username, inline: true },
         { name: 'Reason', value: reason, inline: true },
         { name: 'Steam Profile', value: steamUrl, inline: false },
-        { name: 'Offence', value: reason === 'Spamming' ? `#${offence}` : 'Permanent', inline: true }
+        { name: 'Offence', value: offence ? `#${offence}` : 'Permanent', inline: true }
       ],
       timestamp: new Date().toISOString()
     }]
@@ -90,41 +100,39 @@ async function sendDiscordAlert(username, userId, reason, offence) {
   }
 }
 
-function prisonPlayer(userId, username, reason) {
+async function prisonPlayer(userId, username, reason) {
   if (prisoned.has(userId)) return;
   prisoned.add(userId);
+
+  delete spamTracker[userId];
+  delete repeatTracker[userId];
 
   if (reason === 'Spamming') {
     const minutes = getSpamMinutes(userId);
     spamOffences[userId] = (spamOffences[userId] || 0) + 1;
 
     if (minutes !== null) {
-      console.log(`Spam offence #${spamOffences[userId]} from ${username} — prisoning for ${minutes} mins!`);
-      sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
+      console.log(`Spam offence #${spamOffences[userId]} from ${username} — ${minutes} mins`);
+      await sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
       sendRcon(`prison ${userId} Spamming`);
       sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming. You have ${minutes} minute(s) remaining.`);
-      // Auto unjail after timer
       setTimeout(() => {
         console.log(`Auto releasing ${username} after ${minutes} min spam sentence`);
         sendRcon(`unjail ${userId}`);
         prisoned.delete(userId);
       }, minutes * 60 * 1000);
     } else {
-      console.log(`Spam offence #${spamOffences[userId]} from ${username} — permanent prison!`);
-      sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
+      console.log(`Spam offence #${spamOffences[userId]} from ${username} — permanent`);
+      await sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
       sendRcon(`prison ${userId} Spamming`);
       sendRcon(`say [Ruscar Bot]: ${username} has been permanently prisoned for repeated spamming.`);
-      setTimeout(() => prisoned.delete(userId), 30000);
     }
   } else {
-    console.log(`${reason} from ${username} — permanent prison!`);
+    console.log(`${reason} from ${username} — permanent prison`);
+    await sendDiscordAlert(username, userId, reason, null);
     sendRcon(`prison ${userId} ${reason}`);
     sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for using hate speech.`);
-    setTimeout(() => prisoned.delete(userId), 30000);
   }
-
-  delete spamTracker[userId];
-  delete repeatTracker[userId];
 }
 
 async function classifyMessage(text) {
@@ -163,20 +171,8 @@ Player message: "${text}"`
   }
 }
 
-// Explicit blocklist — always caught regardless of AI
-const BLOCKED_WORDS = [
-  'retard', 'retarded', 'spastic', 'spaz',
-  'nigger', 'nigga', 'faggot', 'fag', 'tranny',
-  'chink', 'kike', 'gook', 'wetback', 'beaner'
-];
-
-function containsBlockedWord(text) {
-  return BLOCKED_WORDS.some(word => text.includes(word));
-}
-
 async function checkSlur(text) {
   if (text.length <= 2) return false;
-  // Check blocklist first — instant, no AI needed
   if (containsBlockedWord(text)) return true;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -247,20 +243,20 @@ function connect() {
 
       // Check for spam
       if (isSpamming(userId)) {
-        prisonPlayer(userId, username, 'Spamming');
+        await prisonPlayer(userId, username, 'Spamming');
         return;
       }
 
       // Check for repeat spam
       if (isRepeating(userId, text)) {
-        prisonPlayer(userId, username, 'Spamming');
+        await prisonPlayer(userId, username, 'Spamming');
         return;
       }
 
       // Check for slurs
       const isSlur = await checkSlur(text);
       if (isSlur) {
-        prisonPlayer(userId, username, 'Hate Speech');
+        await prisonPlayer(userId, username, 'Hate Speech');
         return;
       }
 
