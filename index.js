@@ -15,8 +15,9 @@ const COMMANDS = [
 ];
 
 const spamTracker = {};
-const SPAM_LIMIT  = 10;
+const SPAM_LIMIT  = 7;
 const SPAM_WINDOW = 10000;
+const prisoned = new Set();
 
 let ws;
 let counter = 1;
@@ -29,6 +30,12 @@ function isSpamming(userId) {
   spamTracker[userId].push(now);
   console.log(`[SPAM] ${userId} has ${spamTracker[userId].length} messages in window`);
   return spamTracker[userId].length >= SPAM_LIMIT;
+}
+
+function extractPlayerMessage(raw) {
+  // Strip BetterChat prefix - get text after last ": "
+  const parts = raw.split(': ');
+  return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
 }
 
 async function classifyMessage(text) {
@@ -123,30 +130,41 @@ function connect() {
       let inner;
       try { inner = JSON.parse(msg.Message); } catch { return; }
 
-      const text     = (inner.Message || '').toLowerCase();
+      const rawText  = inner.Message || '';
       const username = inner.Username || '';
       const userId   = inner.UserId || '';
 
-      if (!text) return;
+      if (!rawText) return;
       if (userId === '0' || username === 'SERVER') return;
 
-      console.log(`[CHAT] ${username} (${userId}): ${text}`);
+      // Strip BetterChat prefix to get just the player's actual message
+      const text = extractPlayerMessage(rawText).toLowerCase();
 
-      // Check for spam first
+      console.log(`[CHAT] ${username}: ${text}`);
+
+      // Check for spam first — instant, no AI
       if (isSpamming(userId)) {
-        console.log(`Spam detected from ${username} — prisoning!`);
-        sendRcon(`prison ${userId}`);
-        sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming.`);
-        delete spamTracker[userId];
+        if (!prisoned.has(userId)) {
+          prisoned.add(userId);
+          console.log(`Spam detected from ${username} — prisoning!`);
+          sendRcon(`prison ${userId}`);
+          sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming.`);
+          delete spamTracker[userId];
+          setTimeout(() => prisoned.delete(userId), 30000);
+        }
         return;
       }
 
       // Check for slurs
       const isSlur = await checkSlur(text);
       if (isSlur) {
-        console.log(`Slur detected from ${username} (${userId}) — prisoning!`);
-        sendRcon(`prison ${userId}`);
-        sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for using hate speech.`);
+        if (!prisoned.has(userId)) {
+          prisoned.add(userId);
+          console.log(`Slur detected from ${username} — prisoning!`);
+          sendRcon(`prison ${userId}`);
+          sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for using hate speech.`);
+          setTimeout(() => prisoned.delete(userId), 30000);
+        }
         return;
       }
 
