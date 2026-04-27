@@ -20,6 +20,14 @@ function extractMessage(raw) {
   return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
 }
 
+function extractUsername(raw) {
+  // BetterChat format: "[Better Chat] [Team] [Owner] [Admin] 5HeadNN: message"
+  // Get everything before the last ": " then take the last word (the username)
+  const beforeMessage = raw.split(': ').slice(0, -1).join(': ');
+  const words = beforeMessage.trim().split(' ');
+  return words[words.length - 1].trim();
+}
+
 async function classifyMessage(text) {
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -105,7 +113,9 @@ function connect() {
       const msg = JSON.parse(data.toString());
       const raw = msg.Message || '';
       const channel = (msg.Channel || 0);
-      const player = msg.Username || msg.Name || '';
+
+      // Extract username from msg fields or from raw BetterChat format
+      const player = msg.Username || msg.Name || extractUsername(raw);
 
       if (channel !== 0) return;
       if (!raw) return;
