@@ -121,7 +121,7 @@ function prisonPlayer(userId, username, reason) {
   if (prisoned.has(userId)) return;
   prisoned.add(userId);
   console.log(`${reason} detected from ${username} — prisoning!`);
-  sendRcon(`prison ${userId}`);
+  sendRcon(`prison ${userId} ${reason}`);
   sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for ${reason.toLowerCase()}.`);
   delete spamTracker[userId];
   delete repeatTracker[userId];
