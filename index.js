@@ -48,6 +48,44 @@ Player message: "${text}"`
   }
 }
 
+async function checkSlur(text) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 10,
+        messages: [{
+          role: 'user',
+          content: `You are a moderation bot for a Rust game server. Does this message contain racial slurs, hate speech or discriminatory language including intentional misspellings or variations?
+
+Reply with ONLY "yes" or "no".
+
+Message: "${text}"`
+        }]
+      })
+    });
+    const data = await res.json();
+    return data.content[0].text.trim().toLowerCase() === 'yes';
+  } catch (e) {
+    console.error('AI moderation error:', e.message);
+    return false;
+  }
+}
+
+function sendRcon(command) {
+  ws.send(JSON.stringify({
+    Identifier: counter++,
+    Message: command,
+    Name: 'Bot'
+  }));
+}
+
 function connect() {
   const url = `ws://${RCON_HOST}:${RCON_PORT}/${RCON_PASS}`;
   console.log('Connecting...');
@@ -62,13 +100,25 @@ function connect() {
       const msg = JSON.parse(data.toString());
       const text = (msg.Message || '').toLowerCase();
       const channel = (msg.Channel || 0);
+      const player = msg.Username || msg.Name || '';
 
       if (channel !== 0) return;
       if (!text) return;
 
-      console.log('[CHAT]', msg.Message);
+      console.log('[CHAT]', player, ':', msg.Message);
 
-      // Set cooldown BEFORE the AI call to prevent double replies
+      // Check for slurs first — runs independently of cooldown
+      if (player) {
+        const isSlur = await checkSlur(text);
+        if (isSlur) {
+          console.log(`🚨 Slur detected from ${player} — prisoning!`);
+          sendRcon(`prison ${player}`);
+          sendRcon(`say [Ruscar Bot]: ${player} has been automatically prisoned for using hate speech.`);
+          return;
+        }
+      }
+
+      // Info commands with cooldown
       if (cooldown) return;
       cooldown = true;
       setTimeout(() => cooldown = false, 10000);
@@ -79,13 +129,8 @@ function connect() {
       const command = COMMANDS.find(c => c.id === category);
       if (command && command.reply) {
         console.log('Sending:', command.reply);
-        ws.send(JSON.stringify({
-          Identifier: counter++,
-          Message: command.reply,
-          Name: 'Bot'
-        }));
+        sendRcon(command.reply);
       } else {
-        // No match, reset cooldown immediately so next message isn't blocked
         cooldown = false;
       }
     } catch (e) {
