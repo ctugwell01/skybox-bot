@@ -4,6 +4,7 @@ const RCON_HOST = process.env.RCON_HOST;
 const RCON_PORT = process.env.RCON_PORT || '28152';
 const RCON_PASS = process.env.RCON_PASS;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const COMMANDS = [
   { id: 'skybox', reply: 'say [Ruscar Bot]: To get into the skybox, type /view in chat!' },
@@ -60,6 +61,35 @@ function getSpamMinutes(userId) {
   return null; // permanent
 }
 
+async function sendDiscordAlert(username, userId, reason, offence) {
+  if (!DISCORD_WEBHOOK) return;
+  const steamUrl = `https://steamcommunity.com/profiles/${userId}`;
+  const colour = reason === 'Hate Speech' ? 15158332 : 15105570;
+  const body = {
+    embeds: [{
+      title: '🚨 Player Auto Prisoned',
+      color: colour,
+      fields: [
+        { name: 'Player', value: username, inline: true },
+        { name: 'Reason', value: reason, inline: true },
+        { name: 'Steam Profile', value: steamUrl, inline: false },
+        { name: 'Offence', value: reason === 'Spamming' ? `#${offence}` : 'Permanent', inline: true }
+      ],
+      timestamp: new Date().toISOString()
+    }]
+  };
+  try {
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    console.log(`Discord alert sent for ${username}`);
+  } catch (e) {
+    console.error('Discord alert error:', e.message);
+  }
+}
+
 function prisonPlayer(userId, username, reason) {
   if (prisoned.has(userId)) return;
   prisoned.add(userId);
@@ -70,6 +100,7 @@ function prisonPlayer(userId, username, reason) {
 
     if (minutes !== null) {
       console.log(`Spam offence #${spamOffences[userId]} from ${username} — prisoning for ${minutes} mins!`);
+      sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
       sendRcon(`prison ${userId} Spamming`);
       sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming. You have ${minutes} minute(s) remaining.`);
       // Auto unjail after timer
@@ -80,6 +111,7 @@ function prisonPlayer(userId, username, reason) {
       }, minutes * 60 * 1000);
     } else {
       console.log(`Spam offence #${spamOffences[userId]} from ${username} — permanent prison!`);
+      sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
       sendRcon(`prison ${userId} Spamming`);
       sendRcon(`say [Ruscar Bot]: ${username} has been permanently prisoned for repeated spamming.`);
       setTimeout(() => prisoned.delete(userId), 30000);
