@@ -20,6 +20,7 @@ const repeatTracker = {};
 const spamOffences = {};
 const prisoned = new Set();
 const playerCooldowns = new Set();
+const releaseCooldowns = new Set(); // prevents spam right after release
 
 const SPAM_LIMIT   = 7;
 const SPAM_WINDOW  = 10000;
@@ -240,6 +241,9 @@ function connect() {
       console.log(`[CHAT] ${username}: ${text}`);
 
       if (prisoned.has(userId)) return;
+
+      // Block spam attempts right after release
+      if (releaseCooldowns.has(userId)) return;
 
       // Check for spam
       if (isSpamming(userId)) {
