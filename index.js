@@ -16,7 +16,7 @@ const COMMANDS = [
 
 const spamTracker = {};
 const SPAM_LIMIT  = 10;
-const SPAM_WINDOW = 5000;
+const SPAM_WINDOW = 10000;
 
 let ws;
 let counter = 1;
@@ -92,96 +92,4 @@ Message: "${text}"`
     const data = await res.json();
     return data.content[0].text.trim().toLowerCase() === 'yes';
   } catch (e) {
-    console.error('AI moderation error:', e.message);
-    return false;
-  }
-}
-
-function sendRcon(command) {
-  ws.send(JSON.stringify({
-    Identifier: counter++,
-    Message: command,
-    Name: 'Bot'
-  }));
-}
-
-function connect() {
-  const url = `ws://${RCON_HOST}:${RCON_PORT}/${RCON_PASS}`;
-  console.log('Connecting...');
-  ws = new WebSocket(url);
-
-  ws.on('open', () => {
-    console.log('Connected to Rust RCON!');
-  });
-
-  ws.on('message', async (data) => {
-    try {
-      const msg = JSON.parse(data.toString());
-
-      if (msg.Type !== 'Chat') return;
-
-      let inner;
-      try { inner = JSON.parse(msg.Message); } catch { return; }
-
-      const text     = (inner.Message || '').toLowerCase();
-      const username = inner.Username || '';
-      const userId   = inner.UserId || '';
-
-      if (!text) return;
-      if (userId === '0' || username === 'SERVER') return;
-
-      console.log(`[CHAT] ${username} (${userId}): ${text}`);
-
-      // Check for spam first — no AI needed, instant
-      if (isSpamming(userId)) {
-        console.log(`🚨 Spam detected from ${username} — prisoning!`);
-        sendRcon(`prison ${userId}`);
-        sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming.`);
-        delete spamTracker[userId];
-        return;
-      }
-
-      // Check for slurs
-      const isSlur = await checkSlur(text);
-      if (isSlur) {
-        console.log(`🚨 Slur detected from ${username} (${userId}) — prisoning!`);
-        sendRcon(`prison ${userId}`);
-        sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for using hate speech.`);
-        return;
-      }
-
-      // Info commands with cooldown
-      if (cooldown) return;
-      cooldown = true;
-      setTimeout(() => cooldown = false, 10000);
-
-      const category = await classifyMessage(text);
-      console.log('AI classified as:', category);
-
-      const command = COMMANDS.find(c => c.id === category);
-      if (command && command.reply) {
-        console.log('Sending:', command.reply);
-        sendRcon(command.reply);
-      } else {
-        cooldown = false;
-      }
-    } catch (e) {
-      console.log('Error:', e.message);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('Disconnected, reconnecting in 5s...');
-    setTimeout(connect, 5000);
-  });
-
-  ws.on('error', (err) => console.error('WS Error:', err.message));
-}
-
-if (!RCON_HOST || !RCON_PASS) {
-  console.error('Missing RCON_HOST or RCON_PASS!');
-  process.exit(1);
-}
-
-console.log('Bot started...');
-connect();
+    console.e
