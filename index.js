@@ -8,12 +8,28 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const COMMANDS = [
   { id: 'skybox', reply: 'say [Ruscar Bot]: To get into the skybox, type /view in chat!' },
   { id: 'leader', reply: 'say [Ruscar Bot]: To see who is winning type /pos in chat! If there is no active race type /race leaders instead!' },
+  { id: 'portal', reply: 'say [Ruscar Bot]: Not sure which portal? Check the MIDDLE board at the race hub — it shows the current/next league race map!' },
+  { id: 'modtool', reply: 'say [Ruscar Bot]: Ask 5HeadNN and he will give you one, please be patient!' },
+  { id: 'food', reply: 'say [Ruscar Bot]: Type /kit in chat and redeem the food kit!' },
   { id: 'none', reply: null }
 ];
+
+// Spam tracking
+const spamTracker = {};
+const SPAM_LIMIT  = 10;
+const SPAM_WINDOW = 5000;
 
 let ws;
 let counter = 1;
 let cooldown = false;
+
+function isSpamming(userId) {
+  const now = Date.now();
+  if (!spamTracker[userId]) spamTracker[userId] = [];
+  spamTracker[userId] = spamTracker[userId].filter(t => now - t < SPAM_WINDOW);
+  spamTracker[userId].push(now);
+  return spamTracker[userId].length >= SPAM_LIMIT;
+}
 
 async function classifyMessage(text) {
   try {
@@ -32,7 +48,10 @@ async function classifyMessage(text) {
           content: `You are a classifier for a Rust game server chat bot. Classify this player message into one of these categories:
 - "skybox" if the player is asking how to get into the skybox or sky area
 - "leader" if the player is asking who is winning, about race positions or leaderboard
-- "none" if it doesn't match either
+- "portal" if the player is asking which portal to go through, which map the race is on, which track, or which race to join
+- "modtool" if the player is asking for a mod tool, modular car, or a vehicle tool
+- "food" if the player is asking for food, how to eat, or how to get food
+- "none" if it doesn't match any of the above
 
 Reply with ONLY the category word, nothing else.
 
@@ -99,10 +118,8 @@ function connect() {
     try {
       const msg = JSON.parse(data.toString());
 
-      // Only process Type: Chat messages
       if (msg.Type !== 'Chat') return;
 
-      // Parse the inner JSON
       let inner;
       try { inner = JSON.parse(msg.Message); } catch { return; }
 
@@ -110,13 +127,21 @@ function connect() {
       const username = inner.Username || '';
       const userId   = inner.UserId || '';
 
-      // Ignore SERVER messages
       if (!text) return;
       if (userId === '0' || username === 'SERVER') return;
 
       console.log(`[CHAT] ${username} (${userId}): ${text}`);
 
-      // Check for slurs first
+      // Check for spam
+      if (isSpamming(userId)) {
+        console.log(`🚨 Spam detected from ${username} — prisoning!`);
+        sendRcon(`prison ${userId}`);
+        sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming.`);
+        delete spamTracker[userId];
+        return;
+      }
+
+      // Check for slurs
       const isSlur = await checkSlur(text);
       if (isSlur) {
         console.log(`🚨 Slur detected from ${username} (${userId}) — prisoning!`);
