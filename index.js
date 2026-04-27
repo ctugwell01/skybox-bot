@@ -4,11 +4,21 @@ const RCON_HOST = process.env.RCON_HOST;
 const RCON_PORT = process.env.RCON_PORT || '28152';
 const RCON_PASS = process.env.RCON_PASS;
 
-const SKYBOX_KEYWORDS = ['skybox', 'sky box', 'get in sky'];
+const TRIGGERS = [
+  {
+    keywords: ['skybox', 'sky box', 'get in sky'],
+    reply: 'say [Ruscar Bot]: To get into the skybox, type /view in chat!',
+    cooldown: false
+  },
+  {
+    keywords: ['leader', 'leaderboard', 'who is winning', 'whos winning', 'who winning', 'race position', 'positions'],
+    reply: 'say [Ruscar Bot]: To see who is winning type /pos in chat! If there is no active race type /race leaders instead!',
+    cooldown: false
+  }
+];
 
 let ws;
 let counter = 1;
-let cooldown = false;
 
 function connect() {
   const url = `ws://${RCON_HOST}:${RCON_PORT}/${RCON_PASS}`;
@@ -30,17 +40,19 @@ function connect() {
 
       console.log('[CHAT]', msg.Message);
 
-      if (SKYBOX_KEYWORDS.some(kw => text.includes(kw))) {
-        if (cooldown) return;
-        cooldown = true;
-        setTimeout(() => cooldown = false, 10000);
+      for (const trigger of TRIGGERS) {
+        if (trigger.keywords.some(kw => text.includes(kw))) {
+          if (trigger.cooldown) continue;
+          trigger.cooldown = true;
+          setTimeout(() => trigger.cooldown = false, 10000);
 
-        console.log('Triggered! Sending message...');
-        ws.send(JSON.stringify({
-          Identifier: counter++,
-          Message: 'say [Ruscar Bot]: To get into the skybox, type /view in chat!',
-          Name: 'Bot'
-        }));
+          console.log('Triggered! Sending:', trigger.reply);
+          ws.send(JSON.stringify({
+            Identifier: counter++,
+            Message: trigger.reply,
+            Name: 'Bot'
+          }));
+        }
       }
     } catch (e) {
       console.log('Raw:', data.toString());
