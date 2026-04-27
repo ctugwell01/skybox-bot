@@ -16,10 +16,14 @@ const COMMANDS = [
 
 const spamTracker = {};
 const repeatTracker = {};
+const spamOffences = {};
 const SPAM_LIMIT   = 7;
 const SPAM_WINDOW  = 10000;
 const REPEAT_LIMIT = 3;
 const prisoned = new Set();
+
+// Spam offence timers in minutes (index 0 = 1st offence, etc)
+const SPAM_TIMERS = [5, 10, 30];
 
 let ws;
 let counter = 1;
@@ -48,6 +52,47 @@ function isRepeating(userId, text) {
 function extractPlayerMessage(raw) {
   const parts = raw.split(': ');
   return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
+}
+
+function getSpamMinutes(userId) {
+  const offence = spamOffences[userId] || 0;
+  if (offence < SPAM_TIMERS.length) return SPAM_TIMERS[offence];
+  return null; // permanent
+}
+
+function prisonPlayer(userId, username, reason) {
+  if (prisoned.has(userId)) return;
+  prisoned.add(userId);
+
+  if (reason === 'Spamming') {
+    const minutes = getSpamMinutes(userId);
+    spamOffences[userId] = (spamOffences[userId] || 0) + 1;
+
+    if (minutes !== null) {
+      console.log(`Spam offence #${spamOffences[userId]} from ${username} — prisoning for ${minutes} mins!`);
+      sendRcon(`prison ${userId} Spamming`);
+      sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming.`);
+      // Auto unjail after timer
+      setTimeout(() => {
+        console.log(`Auto releasing ${username} after ${minutes} min spam sentence`);
+        sendRcon(`unjail ${userId}`);
+        prisoned.delete(userId);
+      }, minutes * 60 * 1000);
+    } else {
+      console.log(`Spam offence #${spamOffences[userId]} from ${username} — permanent prison!`);
+      sendRcon(`prison ${userId} Spamming`);
+      sendRcon(`say [Ruscar Bot]: ${username} has been permanently prisoned for repeated spamming.`);
+      setTimeout(() => prisoned.delete(userId), 30000);
+    }
+  } else {
+    console.log(`${reason} from ${username} — permanent prison!`);
+    sendRcon(`prison ${userId} ${reason}`);
+    sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for using hate speech.`);
+    setTimeout(() => prisoned.delete(userId), 30000);
+  }
+
+  delete spamTracker[userId];
+  delete repeatTracker[userId];
 }
 
 async function classifyMessage(text) {
@@ -117,17 +162,6 @@ Message: "${text}"`
   }
 }
 
-function prisonPlayer(userId, username, reason) {
-  if (prisoned.has(userId)) return;
-  prisoned.add(userId);
-  console.log(`${reason} detected from ${username} — prisoning!`);
-  sendRcon(`prison ${userId} ${reason}`);
-  sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for ${reason.toLowerCase()}.`);
-  delete spamTracker[userId];
-  delete repeatTracker[userId];
-  setTimeout(() => prisoned.delete(userId), 30000);
-}
-
 function sendRcon(command) {
   ws.send(JSON.stringify({
     Identifier: counter++,
@@ -166,13 +200,13 @@ function connect() {
 
       if (prisoned.has(userId)) return;
 
-      // Check for spam (too many messages)
+      // Check for spam
       if (isSpamming(userId)) {
         prisonPlayer(userId, username, 'Spamming');
         return;
       }
 
-      // Check for repeat spam (same message over and over)
+      // Check for repeat spam
       if (isRepeating(userId, text)) {
         prisonPlayer(userId, username, 'Spamming');
         return;
