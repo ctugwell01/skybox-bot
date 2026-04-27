@@ -68,21 +68,25 @@ function connect() {
 
       console.log('[CHAT]', msg.Message);
 
+      // Set cooldown BEFORE the AI call to prevent double replies
       if (cooldown) return;
+      cooldown = true;
+      setTimeout(() => cooldown = false, 10000);
 
       const category = await classifyMessage(text);
       console.log('AI classified as:', category);
 
       const command = COMMANDS.find(c => c.id === category);
       if (command && command.reply) {
-        cooldown = true;
-        setTimeout(() => cooldown = false, 10000);
         console.log('Sending:', command.reply);
         ws.send(JSON.stringify({
           Identifier: counter++,
           Message: command.reply,
           Name: 'Bot'
         }));
+      } else {
+        // No match, reset cooldown immediately so next message isn't blocked
+        cooldown = false;
       }
     } catch (e) {
       console.log('Raw:', data.toString());
