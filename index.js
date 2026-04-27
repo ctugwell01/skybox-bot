@@ -15,6 +15,12 @@ let ws;
 let counter = 1;
 let cooldown = false;
 
+function extractMessage(raw) {
+  // Strip BetterChat formatting - get everything after the last ": "
+  const parts = raw.split(': ');
+  return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
+}
+
 async function classifyMessage(text) {
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -98,17 +104,20 @@ function connect() {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      const text = (msg.Message || '').toLowerCase();
+      const raw = msg.Message || '';
       const channel = (msg.Channel || 0);
       const player = msg.Username || msg.Name || '';
 
       if (channel !== 0) return;
-      if (!text) return;
+      if (!raw) return;
 
-      console.log('[CHAT]', player, ':', msg.Message);
+      // Extract just the actual message, strip BetterChat prefix
+      const text = extractMessage(raw).toLowerCase();
 
-      // Check for slurs first — runs independently of cooldown
-      if (player) {
+      console.log(`[CHAT] ${player}: ${text}`);
+
+      // Check for slurs first
+      if (player && player !== '') {
         const isSlur = await checkSlur(text);
         if (isSlur) {
           console.log(`🚨 Slur detected from ${player} — prisoning!`);
