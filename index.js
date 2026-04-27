@@ -71,7 +71,7 @@ function prisonPlayer(userId, username, reason) {
     if (minutes !== null) {
       console.log(`Spam offence #${spamOffences[userId]} from ${username} — prisoning for ${minutes} mins!`);
       sendRcon(`prison ${userId} Spamming`);
-      sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming.`);
+      sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming. You have ${minutes} minute(s) remaining.`);
       // Auto unjail after timer
       setTimeout(() => {
         console.log(`Auto releasing ${username} after ${minutes} min spam sentence`);
