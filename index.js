@@ -19,6 +19,7 @@ const spamTracker = {};
 const repeatTracker = {};
 const spamOffences = {};
 const prisoned = new Set();
+const playerCooldowns = new Set();
 
 const SPAM_LIMIT   = 7;
 const SPAM_WINDOW  = 10000;
@@ -34,7 +35,6 @@ const BLOCKED_WORDS = [
 
 let ws;
 let counter = 1;
-let cooldown = false;
 
 function containsBlockedWord(text) {
   return BLOCKED_WORDS.some(word => text.includes(word));
@@ -260,10 +260,10 @@ function connect() {
         return;
       }
 
-      // Info commands with cooldown
-      if (cooldown) return;
-      cooldown = true;
-      setTimeout(() => cooldown = false, 10000);
+      // Info commands with per-player cooldown
+      if (playerCooldowns.has(userId)) return;
+      playerCooldowns.add(userId);
+      setTimeout(() => playerCooldowns.delete(userId), 10000);
 
       const category = await classifyMessage(text);
       console.log('AI classified as:', category);
@@ -273,7 +273,7 @@ function connect() {
         console.log('Sending:', command.reply);
         sendRcon(command.reply);
       } else {
-        cooldown = false;
+        playerCooldowns.delete(userId);
       }
     } catch (e) {
       console.log('Error:', e.message);
