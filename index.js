@@ -99,6 +99,9 @@ function connect() {
     try {
       const msg = JSON.parse(data.toString());
 
+      // Log everything so we can see what's coming through
+      console.log('RAW TYPE:', msg.Type, '| MSG:', data.toString().substring(0, 150));
+
       // Only process Type: Chat messages
       if (msg.Type !== 'Chat') return;
 
