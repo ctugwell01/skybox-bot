@@ -16,7 +16,6 @@ let counter = 1;
 let cooldown = false;
 
 function extractMessage(raw) {
-  // Strip BetterChat formatting - get everything after the last ": "
   const parts = raw.split(': ');
   return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
 }
@@ -111,20 +110,18 @@ function connect() {
       if (channel !== 0) return;
       if (!raw) return;
 
-      // Extract just the actual message, strip BetterChat prefix
       const text = extractMessage(raw).toLowerCase();
 
       console.log(`[CHAT] ${player}: ${text}`);
 
-      // Check for slurs first
-      if (player && player !== '') {
-        const isSlur = await checkSlur(text);
-        if (isSlur) {
-          console.log(`🚨 Slur detected from ${player} — prisoning!`);
-          sendRcon(`prison ${player}`);
-          sendRcon(`say [Ruscar Bot]: ${player} has been automatically prisoned for using hate speech.`);
-          return;
-        }
+      // Check for slurs first - no player check needed
+      const isSlur = await checkSlur(text);
+      if (isSlur) {
+        const target = player || raw.split(':')[0].trim();
+        console.log(`🚨 Slur detected from ${target} — prisoning!`);
+        sendRcon(`prison ${target}`);
+        sendRcon(`say [Ruscar Bot]: ${target} has been automatically prisoned for using hate speech.`);
+        return;
       }
 
       // Info commands with cooldown
