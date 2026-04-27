@@ -21,8 +21,7 @@ function extractMessage(raw) {
 }
 
 function extractUsername(raw) {
-  // BetterChat format: "[Better Chat] [Team] [Owner] [Admin] 5HeadNN: message"
-  // Get everything before the last ": " then take the last word (the username)
+  // BetterChat format: "[Better Chat] [Global] [Owner] [Admin] 5HeadNN: message"
   const beforeMessage = raw.split(': ').slice(0, -1).join(': ');
   const words = beforeMessage.trim().split(' ');
   return words[words.length - 1].trim();
@@ -114,19 +113,21 @@ function connect() {
       const raw = msg.Message || '';
       const channel = (msg.Channel || 0);
 
-      // Extract username from msg fields or from raw BetterChat format
-      const player = msg.Username || msg.Name || extractUsername(raw);
-
       if (channel !== 0) return;
       if (!raw) return;
 
+      // Log full message object so we can see all available fields
+      console.log('FULL MSG:', JSON.stringify(msg));
+
       const text = extractMessage(raw).toLowerCase();
-      console.log(`[CHAT] ${player}: ${text}`);
+      // Try every possible field for username
+      const player = msg.Username || msg.username || msg.Name || msg.name || msg.DisplayName || msg.displayName || extractUsername(raw);
+      console.log(`[CHAT] player="${player}" text="${text}"`);
 
       // Check for slurs first
       const isSlur = await checkSlur(text);
       if (isSlur) {
-        console.log(`🚨 Slur detected from ${player} — prisoning!`);
+        console.log(`🚨 Slur detected from "${player}" — sending: prison ${player}`);
         sendRcon(`prison ${player}`);
         sendRcon(`say [Ruscar Bot]: ${player} has been automatically prisoned for using hate speech.`);
         return;
