@@ -15,18 +15,6 @@ let ws;
 let counter = 1;
 let cooldown = false;
 
-function extractMessage(raw) {
-  const parts = raw.split(': ');
-  return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
-}
-
-function extractUsername(raw) {
-  // BetterChat format: "[Better Chat] [Global] [Owner] [Admin] 5HeadNN: message"
-  const beforeMessage = raw.split(': ').slice(0, -1).join(': ');
-  const words = beforeMessage.trim().split(' ');
-  return words[words.length - 1].trim();
-}
-
 async function classifyMessage(text) {
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -110,26 +98,32 @@ function connect() {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      const raw = msg.Message || '';
-      const channel = (msg.Channel || 0);
 
+      // Only process real player chat messages (Type: Chat, Channel: 0 = global)
+      if (msg.Type !== 'Chat') return;
+
+      // Parse inner JSON
+      let inner;
+      try { inner = JSON.parse(msg.Message); } catch { return; }
+
+      const channel  = inner.Channel || 0;
+      const text     = (inner.Message || '').toLowerCase();
+      const username = inner.Username || '';
+      const userId   = inner.UserId || '';
+
+      // Only global chat (channel 0), ignore SERVER
       if (channel !== 0) return;
-      if (!raw) return;
+      if (!text) return;
+      if (userId === '0' || username === 'SERVER') return;
 
-      // Log full message object so we can see all available fields
-      console.log('FULL MSG:', JSON.stringify(msg));
+      console.log(`[CHAT] ${username} (${userId}): ${text}`);
 
-      const text = extractMessage(raw).toLowerCase();
-      // Try every possible field for username
-      const player = msg.Username || msg.username || msg.Name || msg.name || msg.DisplayName || msg.displayName || extractUsername(raw);
-      console.log(`[CHAT] player="${player}" text="${text}"`);
-
-      // Check for slurs first
+      // Check for slurs - use SteamID for reliable prisoning
       const isSlur = await checkSlur(text);
       if (isSlur) {
-        console.log(`🚨 Slur detected from "${player}" — sending: prison ${player}`);
-        sendRcon(`prison ${player}`);
-        sendRcon(`say [Ruscar Bot]: ${player} has been automatically prisoned for using hate speech.`);
+        console.log(`🚨 Slur detected from ${username} (${userId}) — prisoning!`);
+        sendRcon(`prison ${userId}`);
+        sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for using hate speech.`);
         return;
       }
 
@@ -149,7 +143,7 @@ function connect() {
         cooldown = false;
       }
     } catch (e) {
-      console.log('Raw:', data.toString());
+      console.log('Error:', e.message);
     }
   });
 
