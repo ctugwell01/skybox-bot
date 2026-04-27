@@ -99,10 +99,10 @@ function connect() {
     try {
       const msg = JSON.parse(data.toString());
 
-      // Only process real player chat messages (Type: Chat, Channel: 0 = global)
+      // Only process Type: Chat messages
       if (msg.Type !== 'Chat') return;
 
-      // Parse inner JSON
+      // Parse the inner JSON
       let inner;
       try { inner = JSON.parse(msg.Message); } catch { return; }
 
@@ -111,14 +111,14 @@ function connect() {
       const username = inner.Username || '';
       const userId   = inner.UserId || '';
 
-      // Only global chat (channel 0), ignore SERVER
+      // Only global chat, ignore SERVER
       if (channel !== 0) return;
       if (!text) return;
       if (userId === '0' || username === 'SERVER') return;
 
       console.log(`[CHAT] ${username} (${userId}): ${text}`);
 
-      // Check for slurs - use SteamID for reliable prisoning
+      // Check for slurs first
       const isSlur = await checkSlur(text);
       if (isSlur) {
         console.log(`🚨 Slur detected from ${username} (${userId}) — prisoning!`);
