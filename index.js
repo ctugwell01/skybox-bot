@@ -15,8 +15,10 @@ const COMMANDS = [
 ];
 
 const spamTracker = {};
-const SPAM_LIMIT  = 7;
-const SPAM_WINDOW = 10000;
+const repeatTracker = {};
+const SPAM_LIMIT   = 7;
+const SPAM_WINDOW  = 10000;
+const REPEAT_LIMIT = 3;
 const prisoned = new Set();
 
 let ws;
@@ -30,6 +32,17 @@ function isSpamming(userId) {
   spamTracker[userId].push(now);
   console.log(`[SPAM] ${userId} has ${spamTracker[userId].length} messages in window`);
   return spamTracker[userId].length >= SPAM_LIMIT;
+}
+
+function isRepeating(userId, text) {
+  if (!repeatTracker[userId]) repeatTracker[userId] = { text: '', count: 0 };
+  if (repeatTracker[userId].text === text) {
+    repeatTracker[userId].count++;
+  } else {
+    repeatTracker[userId] = { text, count: 1 };
+  }
+  console.log(`[REPEAT] ${userId} said same message ${repeatTracker[userId].count} times`);
+  return repeatTracker[userId].count >= REPEAT_LIMIT;
 }
 
 function extractPlayerMessage(raw) {
@@ -74,7 +87,6 @@ Player message: "${text}"`
 }
 
 async function checkSlur(text) {
-  // Skip slur check for very short messages (1-2 chars) — likely spam not slurs
   if (text.length <= 2) return false;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -103,6 +115,17 @@ Message: "${text}"`
     console.error('AI moderation error:', e.message);
     return false;
   }
+}
+
+function prisonPlayer(userId, username, reason) {
+  if (prisoned.has(userId)) return;
+  prisoned.add(userId);
+  console.log(`${reason} detected from ${username} — prisoning!`);
+  sendRcon(`prison ${userId}`);
+  sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for ${reason.toLowerCase()}.`);
+  delete spamTracker[userId];
+  delete repeatTracker[userId];
+  setTimeout(() => prisoned.delete(userId), 30000);
 }
 
 function sendRcon(command) {
@@ -141,29 +164,24 @@ function connect() {
       const text = extractPlayerMessage(rawText).toLowerCase();
       console.log(`[CHAT] ${username}: ${text}`);
 
-      // Check for spam first — instant, no AI
+      if (prisoned.has(userId)) return;
+
+      // Check for spam (too many messages)
       if (isSpamming(userId)) {
-        if (!prisoned.has(userId)) {
-          prisoned.add(userId);
-          console.log(`Spam detected from ${username} — prisoning!`);
-          sendRcon(`prison ${userId}`);
-          sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for spamming.`);
-          delete spamTracker[userId];
-          setTimeout(() => prisoned.delete(userId), 30000);
-        }
+        prisonPlayer(userId, username, 'Spamming');
         return;
       }
 
-      // Check for slurs (skipped for very short messages)
+      // Check for repeat spam (same message over and over)
+      if (isRepeating(userId, text)) {
+        prisonPlayer(userId, username, 'Spamming');
+        return;
+      }
+
+      // Check for slurs
       const isSlur = await checkSlur(text);
       if (isSlur) {
-        if (!prisoned.has(userId)) {
-          prisoned.add(userId);
-          console.log(`Slur detected from ${username} — prisoning!`);
-          sendRcon(`prison ${userId}`);
-          sendRcon(`say [Ruscar Bot]: ${username} has been automatically prisoned for using hate speech.`);
-          setTimeout(() => prisoned.delete(userId), 30000);
-        }
+        prisonPlayer(userId, username, 'Hate Speech');
         return;
       }
 
