@@ -131,8 +131,21 @@ Player message: "${text}"`
   }
 }
 
+// Explicit blocklist — always caught regardless of AI
+const BLOCKED_WORDS = [
+  'retard', 'retarded', 'spastic', 'spaz',
+  'nigger', 'nigga', 'faggot', 'fag', 'tranny',
+  'chink', 'kike', 'gook', 'wetback', 'beaner'
+];
+
+function containsBlockedWord(text) {
+  return BLOCKED_WORDS.some(word => text.includes(word));
+}
+
 async function checkSlur(text) {
   if (text.length <= 2) return false;
+  // Check blocklist first — instant, no AI needed
+  if (containsBlockedWord(text)) return true;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
