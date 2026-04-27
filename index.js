@@ -33,7 +33,6 @@ function isSpamming(userId) {
 }
 
 function extractPlayerMessage(raw) {
-  // Strip BetterChat prefix - get text after last ": "
   const parts = raw.split(': ');
   return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
 }
@@ -75,6 +74,8 @@ Player message: "${text}"`
 }
 
 async function checkSlur(text) {
+  // Skip slur check for very short messages (1-2 chars) — likely spam not slurs
+  if (text.length <= 2) return false;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -137,9 +138,7 @@ function connect() {
       if (!rawText) return;
       if (userId === '0' || username === 'SERVER') return;
 
-      // Strip BetterChat prefix to get just the player's actual message
       const text = extractPlayerMessage(rawText).toLowerCase();
-
       console.log(`[CHAT] ${username}: ${text}`);
 
       // Check for spam first — instant, no AI
@@ -155,7 +154,7 @@ function connect() {
         return;
       }
 
-      // Check for slurs
+      // Check for slurs (skipped for very short messages)
       const isSlur = await checkSlur(text);
       if (isSlur) {
         if (!prisoned.has(userId)) {
