@@ -21,6 +21,7 @@ const spamOffences = {};
 const prisoned = new Set();
 const playerCooldowns = new Set();
 const releaseCooldowns = new Set(); // prevents spam right after release
+const warnedPlayers = new Set(); // tracks who has already been warned
 
 const SPAM_LIMIT   = 7;
 const SPAM_WINDOW  = 10000;
@@ -260,7 +261,20 @@ function connect() {
       // Check for slurs
       const isSlur = await checkSlur(text);
       if (isSlur) {
-        await prisonPlayer(userId, username, 'Hate Speech');
+        // Blocklist words = instant prison, no warning
+        if (containsBlockedWord(text)) {
+          await prisonPlayer(userId, username, 'Hate Speech');
+          return;
+        }
+        // AI detected borderline = warn first, prison on second offence
+        if (warnedPlayers.has(userId)) {
+          await prisonPlayer(userId, username, 'Hate Speech');
+          warnedPlayers.delete(userId);
+        } else {
+          warnedPlayers.add(userId);
+          console.log(`Warning issued to ${username}`);
+          sendRcon(`say [Ruscar Bot]: ⚠️ ${username} — this is your first warning for inappropriate language. Next offence will result in automatic prison.`);
+        }
         return;
       }
 
