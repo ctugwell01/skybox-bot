@@ -39,7 +39,15 @@ let ws;
 let counter = 1;
 
 function containsBlockedWord(text) {
-  return BLOCKED_WORDS.some(word => text.includes(word));
+  // Check normal text
+  if (BLOCKED_WORDS.some(word => text.includes(word))) return true;
+  // Check with all spaces removed to catch "r etard", "r tard" etc
+  const noSpaces = text.replace(/\s+/g, '');
+  if (BLOCKED_WORDS.some(word => noSpaces.includes(word))) return true;
+  // Check with common substitutions (3=e, 4=a, 0=o, 1=i, @=a)
+  const normalised = text.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/\s+/g,'');
+  if (BLOCKED_WORDS.some(word => normalised.includes(word))) return true;
+  return false;
 }
 
 function isSpamming(userId) {
