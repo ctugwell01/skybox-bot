@@ -1,10 +1,46 @@
 const WebSocket = require('ws');
+const fs = require('fs');
 
 const RCON_HOST = process.env.RCON_HOST;
 const RCON_PORT = process.env.RCON_PORT || '28152';
 const RCON_PASS = process.env.RCON_PASS;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
+
+// Load saved examples from file
+const EXAMPLES_FILE = '/tmp/bot_examples.json';
+let savedExamples = {};
+try {
+  if (fs.existsSync(EXAMPLES_FILE)) {
+    savedExamples = JSON.parse(fs.readFileSync(EXAMPLES_FILE, 'utf8'));
+    console.log(`Loaded ${Object.keys(savedExamples).length} saved example categories`);
+  }
+} catch (e) {
+  console.log('No saved examples found, starting fresh');
+}
+
+function saveExamples() {
+  fs.writeFileSync(EXAMPLES_FILE, JSON.stringify(savedExamples, null, 2));
+}
+
+function addExample(category, phrase) {
+  if (!savedExamples[category]) savedExamples[category] = [];
+  if (!savedExamples[category].includes(phrase)) {
+    savedExamples[category].push(phrase);
+    saveExamples();
+    return true;
+  }
+  return false;
+}
+
+function buildExamplesPrompt() {
+  if (Object.keys(savedExamples).length === 0) return '';
+  let prompt = '\n\nAdditional examples learned from admins:';
+  for (const [category, phrases] of Object.entries(savedExamples)) {
+    prompt += `\n- "${category}": ${phrases.map(p => `"${p}"`).join(', ')}`;
+  }
+  return prompt;
+}
 
 const COMMANDS = [
   { id: 'skybox', reply: 'say [Ruscar Bot]: To get into the skybox, type /view in chat!' },
@@ -165,7 +201,7 @@ async function classifyMessage(text) {
 - "portal" if the player is asking which portal to go through, which map the race is on, which track, or which race to join
 - "modtool" if the player is asking for a mod tool, modular car, vehicle tool, or says things like "can i get a mod tool", "can we have a mod tool", "give me a mod tool", "need a mod tool", "where is the mod tool", "how do i get a mod tool"
 - "food" if the player is asking for food, how to eat, how to get food, or saying they are hungry
-- "none" if it doesn't match any of the above
+- "none" if it doesn't match any of the above${buildExamplesPrompt()}
 
 Reply with ONLY the category word, nothing else.
 
@@ -250,6 +286,30 @@ function connect() {
       console.log(`[CHAT] ${username}: ${text}`);
 
       if (prisoned.has(userId)) return;
+
+      // Admin teach command — !teach <category> <phrase>
+      if (text.startsWith('!teach ')) {
+        const parts = text.slice(7).trim().split(' ');
+        const category = parts[0].toLowerCase();
+        const phrase = parts.slice(1).join(' ');
+        const validCategories = COMMANDS.map(c => c.id).filter(c => c !== 'none');
+        if (!phrase) {
+          sendRcon(`say [Ruscar Bot]: Usage: !teach <category> <phrase>. Categories: ${validCategories.join(', ')}`);
+          return;
+        }
+        if (!validCategories.includes(category)) {
+          sendRcon(`say [Ruscar Bot]: Unknown category "${category}". Valid categories: ${validCategories.join(', ')}`);
+          return;
+        }
+        const added = addExample(category, phrase);
+        if (added) {
+          console.log(`New example added — ${category}: "${phrase}"`);
+          sendRcon(`say [Ruscar Bot]: ✅ Got it! I will now recognise "${phrase}" as a ${category} question.`);
+        } else {
+          sendRcon(`say [Ruscar Bot]: I already know that one!`);
+        }
+        return;
+      }
 
       // Block spam attempts right after release
       if (releaseCooldowns.has(userId)) return;
