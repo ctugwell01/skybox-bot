@@ -43,7 +43,7 @@ function buildExamplesPrompt() {
 }
 
 const COMMANDS = [
-  { id: 'skybox', reply: 'say [Ruscar Bot]: To get into the skybox, type /view in chat!' },
+  { id: 'skybox', reply: 'say [Ruscar Bot]: First go through the track portal, then type /view in chat to get into the skybox!' },
   { id: 'leader', reply: 'say [Ruscar Bot]: To see who is winning type /pos in chat! If there is no active race type /race leaders instead!' },
   { id: 'portal', reply: 'say [Ruscar Bot]: Not sure which portal? Check the MIDDLE board at the race hub — it shows the current/next league race map!' },
   { id: 'modtool', reply: 'say [Ruscar Bot]: Ask 5HeadNN and he will give you one, please be patient!' },
