@@ -221,7 +221,9 @@ async function checkSlur(text) {
   if (text.length <= 2) return false;
   if (containsBlockedWord(text)) return true;
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch('https://api.anthropic.com/v1/messages', { signal: controller.signal,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -241,6 +243,7 @@ Message: "${text}"`
         }]
       })
     });
+    clearTimeout(timeout);
     const data = await res.json();
     return data.content[0].text.trim().toLowerCase() === 'yes';
   } catch (e) {
@@ -327,7 +330,9 @@ function connect() {
       }
 
       // Check for slurs
+      console.log(`[SLUR CHECK] checking: "${text}"`);
       const isSlur = await checkSlur(text);
+      console.log(`[SLUR CHECK] result: ${isSlur}`);
       if (isSlur) {
         // Blocklist words = instant prison, no warning
         if (containsBlockedWord(text)) {
