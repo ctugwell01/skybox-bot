@@ -48,7 +48,6 @@ const COMMANDS = [
   { id: 'portal', reply: 'say [Ruscar Bot]: Not sure which portal? Check the MIDDLE board at the race hub — it shows the current/next league race map!' },
   { id: 'modtool', reply: 'say [Ruscar Bot]: Ask 5HeadNN and he will give you one, please be patient!' },
   { id: 'food', reply: 'say [Ruscar Bot]: Type /kit in chat and redeem the food kit!' },
-  { id: 'parkour', reply: 'say [Ruscar Bot]: To do the parkour type /parkour in chat! To leave and return to where you were type /parkourleave!' },
   { id: 'none', reply: null }
 ];
 
@@ -202,7 +201,6 @@ async function classifyMessage(text) {
 - "portal" if the player is asking which portal to go through, which map the race is on, which track, or which race to join
 - "modtool" if the player is asking for a mod tool, modular car, vehicle tool, or says things like "can i get a mod tool", "can we have a mod tool", "give me a mod tool", "need a mod tool", "where is the mod tool", "how do i get a mod tool"
 - "food" if the player is asking for food, how to eat, how to get food, or saying they are hungry
-- "parkour" if the player is asking about parkour, how to do parkour, how to join parkour, or how to leave parkour
 - "none" if it doesn't match any of the above${buildExamplesPrompt()}
 
 Reply with ONLY the category word, nothing else.
