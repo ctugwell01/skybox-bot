@@ -48,7 +48,7 @@ const COMMANDS = [
   { id: 'portal', reply: 'say [Ruscar Bot]: Not sure which portal? Check the MIDDLE board at the race hub — it shows the current/next league race map!' },
   { id: 'modtool', reply: 'say [Ruscar Bot]: Ask 5HeadNN and he will give you one, please be patient!' },
   { id: 'food', reply: 'say [Ruscar Bot]: Type /kit in chat and redeem the food kit!' },
-  { id: 'parkour', reply: 'say [Ruscar Bot]: To do the parkour type /parkour in chat! To leave and return to where you were type /leave!' },
+  { id: 'parkour', reply: 'say [Ruscar Bot]: To do the parkour type /parkour in chat! To leave and return to where you were type /parkourleave!' },
   { id: 'none', reply: null }
 ];
 
