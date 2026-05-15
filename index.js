@@ -7,7 +7,6 @@ const RCON_PASS = process.env.RCON_PASS;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
-// Load saved examples from file
 const EXAMPLES_FILE = '/tmp/bot_examples.json';
 let savedExamples = {};
 try {
@@ -43,28 +42,27 @@ function buildExamplesPrompt() {
 }
 
 const COMMANDS = [
-  { id: 'skybox', reply: 'say [Ruscar Bot]: First go through the track portal, then type /view in chat to get into the skybox!' },
-  { id: 'leader', reply: 'say [Ruscar Bot]: To see who is winning type /pos in chat! If there is no active race type /race leaders instead!' },
-  { id: 'portal', reply: 'say [Ruscar Bot]: Not sure which portal? Check the MIDDLE board at the race hub — it shows the current/next league race map!' },
+  { id: 'skybox',  reply: 'say [Ruscar Bot]: First go through the track portal, then type /view in chat to get into the skybox!' },
+  { id: 'leader',  reply: 'say [Ruscar Bot]: To see who is winning type /pos in chat! If there is no active race type /race leaders instead!' },
+  { id: 'portal',  reply: 'say [Ruscar Bot]: Not sure which portal? Check the MIDDLE board at the race hub — it shows the current/next league race map!' },
   { id: 'modtool', reply: 'say [Ruscar Bot]: Ask 5HeadNN and he will give you one, please be patient!' },
-  { id: 'food', reply: 'say [Ruscar Bot]: Type /kit in chat and redeem the food kit!' },
-  { id: 'none', reply: null }
+  { id: 'food',    reply: 'say [Ruscar Bot]: Type /kit in chat and redeem the food kit!' },
+  { id: 'none',    reply: null }
 ];
 
-const spamTracker = {};
-const repeatTracker = {};
-const spamOffences = {};
-const prisoned = new Set();
+const spamTracker    = {};
+const repeatTracker  = {};
+const spamOffences   = {};
+const prisoned       = new Set();
 const playerCooldowns = new Set();
-const releaseCooldowns = new Set(); // prevents spam right after release
-const warnedPlayers = new Set(); // tracks who has already been warned
+const releaseCooldowns = new Set();
+const warnedPlayers  = new Set();
 
 const SPAM_LIMIT   = 7;
 const SPAM_WINDOW  = 10000;
 const REPEAT_LIMIT = 3;
 const SPAM_TIMERS  = [5, 10, 30];
 
-// Explicit blocklist
 const BLOCKED_WORDS = [
   'retard', 'retarded', 'spastic', 'spaz',
   'nigger', 'nigga', 'faggot', 'fag', 'tranny',
@@ -75,12 +73,9 @@ let ws;
 let counter = 1;
 
 function containsBlockedWord(text) {
-  // Check normal text
   if (BLOCKED_WORDS.some(word => text.includes(word))) return true;
-  // Check with all spaces removed to catch "r etard", "r tard" etc
   const noSpaces = text.replace(/\s+/g, '');
   if (BLOCKED_WORDS.some(word => noSpaces.includes(word))) return true;
-  // Check with common substitutions (3=e, 4=a, 0=o, 1=i, @=a)
   const normalised = text.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/\s+/g,'');
   if (BLOCKED_WORDS.some(word => normalised.includes(word))) return true;
   return false;
@@ -117,29 +112,27 @@ function getSpamMinutes(userId) {
   return null;
 }
 
+function sendRcon(command) {
+  ws.send(JSON.stringify({ Identifier: counter++, Message: command, Name: 'Bot' }));
+}
+
 async function sendDiscordAlert(username, userId, reason, offence) {
   if (!DISCORD_WEBHOOK) return;
-  const steamUrl = `https://steamcommunity.com/profiles/${userId}`;
-  const colour = reason === 'Hate Speech' ? 15158332 : 15105570;
   const body = {
     embeds: [{
       title: '🚨 Player Auto Prisoned',
-      color: colour,
+      color: reason === 'Hate Speech' ? 15158332 : 15105570,
       fields: [
         { name: 'Player', value: username, inline: true },
         { name: 'Reason', value: reason, inline: true },
-        { name: 'Steam Profile', value: steamUrl, inline: false },
+        { name: 'Steam Profile', value: `https://steamcommunity.com/profiles/${userId}`, inline: false },
         { name: 'Offence', value: offence ? `#${offence}` : 'Permanent', inline: true }
       ],
       timestamp: new Date().toISOString()
     }]
   };
   try {
-    await fetch(DISCORD_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    await fetch(DISCORD_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     console.log(`Discord alert sent for ${username}`);
   } catch (e) {
     console.error('Discord alert error:', e.message);
@@ -149,14 +142,12 @@ async function sendDiscordAlert(username, userId, reason, offence) {
 async function prisonPlayer(userId, username, reason) {
   if (prisoned.has(userId)) return;
   prisoned.add(userId);
-
   delete spamTracker[userId];
   delete repeatTracker[userId];
 
   if (reason === 'Spamming') {
     const minutes = getSpamMinutes(userId);
     spamOffences[userId] = (spamOffences[userId] || 0) + 1;
-
     if (minutes !== null) {
       console.log(`Spam offence #${spamOffences[userId]} from ${username} — ${minutes} mins`);
       await sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
@@ -166,6 +157,8 @@ async function prisonPlayer(userId, username, reason) {
         console.log(`Auto releasing ${username} after ${minutes} min spam sentence`);
         sendRcon(`unjail ${userId}`);
         prisoned.delete(userId);
+        releaseCooldowns.add(userId);
+        setTimeout(() => releaseCooldowns.delete(userId), 60000);
       }, minutes * 60 * 1000);
     } else {
       console.log(`Spam offence #${spamOffences[userId]} from ${username} — permanent`);
@@ -185,11 +178,7 @@ async function classifyMessage(text) {
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 10,
@@ -223,24 +212,14 @@ async function checkSlur(text) {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch('https://api.anthropic.com/v1/messages', { signal: controller.signal,
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      signal: controller.signal,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 10,
-        messages: [{
-          role: 'user',
-          content: `You are a moderation bot for a Rust game server. Does this message contain racial slurs, hate speech or discriminatory language including intentional misspellings or variations?
-
-Reply with ONLY "yes" or "no".
-
-Message: "${text}"`
-        }]
+        messages: [{ role: 'user', content: `You are a moderation bot for a Rust game server. Does this message contain racial slurs, hate speech or discriminatory language including intentional misspellings or variations?\n\nReply with ONLY "yes" or "no".\n\nMessage: "${text}"` }]
       })
     });
     clearTimeout(timeout);
@@ -252,27 +231,16 @@ Message: "${text}"`
   }
 }
 
-function sendRcon(command) {
-  ws.send(JSON.stringify({
-    Identifier: counter++,
-    Message: command,
-    Name: 'Bot'
-  }));
-}
-
 function connect() {
   const url = `ws://${RCON_HOST}:${RCON_PORT}/${RCON_PASS}`;
   console.log('Connecting...');
   ws = new WebSocket(url);
 
-  ws.on('open', () => {
-    console.log('Connected to Rust RCON!');
-  });
+  ws.on('open', () => console.log('Connected to Rust RCON!'));
 
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
-
       if (msg.Type !== 'Chat') return;
 
       let inner;
@@ -288,58 +256,41 @@ function connect() {
       const text = extractPlayerMessage(rawText).toLowerCase();
       console.log(`[CHAT] ${username}: ${text}`);
 
-      if (prisoned.has(userId)) return;
-
-      // Admin teach command — !teach <category> <phrase>
+      // ── STEP 1: Admin teach command (instant, no checks needed)
       if (text.startsWith('!teach ')) {
         const parts = text.slice(7).trim().split(' ');
         const category = parts[0].toLowerCase();
         const phrase = parts.slice(1).join(' ');
         const validCategories = COMMANDS.map(c => c.id).filter(c => c !== 'none');
-        if (!phrase) {
-          sendRcon(`say [Ruscar Bot]: Usage: !teach <category> <phrase>. Categories: ${validCategories.join(', ')}`);
-          return;
-        }
-        if (!validCategories.includes(category)) {
-          sendRcon(`say [Ruscar Bot]: Unknown category "${category}". Valid categories: ${validCategories.join(', ')}`);
-          return;
-        }
+        if (!phrase) { sendRcon(`say [Ruscar Bot]: Usage: !teach <category> <phrase>. Categories: ${validCategories.join(', ')}`); return; }
+        if (!validCategories.includes(category)) { sendRcon(`say [Ruscar Bot]: Unknown category "${category}". Valid: ${validCategories.join(', ')}`); return; }
         const added = addExample(category, phrase);
-        if (added) {
-          console.log(`New example added — ${category}: "${phrase}"`);
-          sendRcon(`say [Ruscar Bot]: ✅ Got it! I will now recognise "${phrase}" as a ${category} question.`);
-        } else {
-          sendRcon(`say [Ruscar Bot]: I already know that one!`);
-        }
+        sendRcon(added ? `say [Ruscar Bot]: Got it! I will now recognise "${phrase}" as a ${category} question.` : `say [Ruscar Bot]: I already know that one!`);
         return;
       }
 
-      // Block spam attempts right after release
+      // ── STEP 2: Skip if already prisoned or in release cooldown
+      if (prisoned.has(userId)) return;
       if (releaseCooldowns.has(userId)) return;
 
-      // Check for spam
-      if (isSpamming(userId)) {
+      // ── STEP 3: SPAM CHECK — instant, synchronous, runs before any async
+      const spamTriggered = isSpamming(userId);
+      const repeatTriggered = isRepeating(userId, text);
+
+      if (spamTriggered || repeatTriggered) {
         await prisonPlayer(userId, username, 'Spamming');
         return;
       }
 
-      // Check for repeat spam
-      if (isRepeating(userId, text)) {
-        await prisonPlayer(userId, username, 'Spamming');
+      // ── STEP 4: Blocklist check — instant, no AI
+      if (containsBlockedWord(text)) {
+        await prisonPlayer(userId, username, 'Hate Speech');
         return;
       }
 
-      // Check for slurs
-      console.log(`[SLUR CHECK] checking: "${text}"`);
+      // ── STEP 5: AI slur check — async, only runs if not spam/blocklist
       const isSlur = await checkSlur(text);
-      console.log(`[SLUR CHECK] result: ${isSlur}`);
       if (isSlur) {
-        // Blocklist words = instant prison, no warning
-        if (containsBlockedWord(text)) {
-          await prisonPlayer(userId, username, 'Hate Speech');
-          return;
-        }
-        // AI detected borderline = warn first, prison on second offence
         if (warnedPlayers.has(userId)) {
           await prisonPlayer(userId, username, 'Hate Speech');
           warnedPlayers.delete(userId);
@@ -351,7 +302,7 @@ function connect() {
         return;
       }
 
-      // Info commands with per-player cooldown
+      // ── STEP 6: Info commands with per-player cooldown
       if (playerCooldowns.has(userId)) return;
       playerCooldowns.add(userId);
       setTimeout(() => playerCooldowns.delete(userId), 10000);
@@ -371,18 +322,11 @@ function connect() {
     }
   });
 
-  ws.on('close', () => {
-    console.log('Disconnected, reconnecting in 5s...');
-    setTimeout(connect, 5000);
-  });
-
+  ws.on('close', () => { console.log('Disconnected, reconnecting in 5s...'); setTimeout(connect, 5000); });
   ws.on('error', (err) => console.error('WS Error:', err.message));
 }
 
-if (!RCON_HOST || !RCON_PASS) {
-  console.error('Missing RCON_HOST or RCON_PASS!');
-  process.exit(1);
-}
+if (!RCON_HOST || !RCON_PASS) { console.error('Missing RCON_HOST or RCON_PASS!'); process.exit(1); }
 
 console.log('Bot started...');
 connect();
