@@ -79,6 +79,21 @@ try {
 
 const HARDCODED_WORDS = [...BLOCKED_WORDS];
 
+const THREAT_WORDS = [
+  'kys', 'kill yourself', 'go die', 'go kill yourself',
+  'end yourself', 'neck yourself', 'rope yourself',
+  'drink bleach', 'i will kill you', 'ill kill you',
+  'i hope you die', 'hope you die', 'you should die',
+  'kill ur self', 'kill your self'
+];
+
+function containsThreat(text) {
+  if (THREAT_WORDS.some(phrase => text.includes(phrase))) return true;
+  const noSpaces = text.replace(/[\s\-_]+/g, '');
+  if (THREAT_WORDS.some(phrase => noSpaces.includes(phrase.replace(/\s/g, '')))) return true;
+  return false;
+}
+
 function saveBlockedWords() {
   const custom = BLOCKED_WORDS.filter(w => !HARDCODED_WORDS.includes(w));
   fs.writeFileSync(BLOCKED_FILE, JSON.stringify(custom, null, 2));
@@ -178,7 +193,10 @@ async function prisonPlayer(userId, username, reason) {
     console.log(reason + ' from ' + username + ' — permanent prison');
     await sendDiscordAlert(username, userId, reason, null);
     sendRcon('prison ' + userId + ' ' + reason);
-    sendRcon('say [Ruscar Bot]: ' + username + ' has been automatically prisoned for using hate speech.');
+    const msg = reason === 'Threats'
+      ? 'say [Ruscar Bot]: ' + username + ' has been automatically prisoned for making threats.'
+      : 'say [Ruscar Bot]: ' + username + ' has been automatically prisoned for using hate speech.';
+    sendRcon(msg);
   }
 }
 
@@ -258,6 +276,27 @@ async function checkSlur(text) {
   }
 }
 
+// Graceful shutdown message
+process.on('SIGTERM', function() {
+  console.log('SIGTERM received — sending shutdown message...');
+  try {
+    sendRcon('say [Ruscar Bot]: Updating code, back in a moment!');
+    setTimeout(function() { process.exit(0); }, 1500);
+  } catch (e) {
+    process.exit(0);
+  }
+});
+
+process.on('SIGINT', function() {
+  console.log('SIGINT received — sending shutdown message...');
+  try {
+    sendRcon('say [Ruscar Bot]: Updating code, back in a moment!');
+    setTimeout(function() { process.exit(0); }, 1500);
+  } catch (e) {
+    process.exit(0);
+  }
+});
+
 function connect() {
   const url = 'ws://' + RCON_HOST + ':' + RCON_PORT + '/' + RCON_PASS;
   console.log('Connecting...');
@@ -266,7 +305,7 @@ function connect() {
   ws.on('open', function() {
     console.log('Connected to Rust RCON!');
     setTimeout(function() {
-      sendRcon('say [Ruscar Bot]: Ruscar Bot is now online and monitoring chat.');
+      sendRcon('say [Ruscar Bot]: Update complete! Ruscar Bot is back online and monitoring chat!');
     }, 2000);
   });
 
@@ -339,6 +378,13 @@ function connect() {
       console.log('[BLOCKLIST CHECK] text: "' + text + '" caught: ' + containsBlockedWord(text));
       if (containsBlockedWord(text)) {
         await prisonPlayer(userId, username, 'Hate Speech');
+        return;
+      }
+
+      // Threat check — instant prison
+      if (containsThreat(text)) {
+        console.log('Threat detected from ' + username);
+        await prisonPlayer(userId, username, 'Threats');
         return;
       }
 
