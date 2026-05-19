@@ -56,6 +56,7 @@ const spamTracker    = {};
 const repeatTracker  = {};
 const spamOffences   = {};
 const prisoned       = new Set();
+const messageHistory = {}; // tracks last N messages per player
 const playerCooldowns = new Set();
 const releaseCooldowns = new Set();
 const warnedPlayers  = new Set();
@@ -80,6 +81,49 @@ try {
   }
 } catch (e) {
   console.log('No extra blocked words file found');
+}
+
+function trackMessage(userId, text) {
+  if (!messageHistory[userId]) messageHistory[userId] = [];
+  messageHistory[userId].push(text);
+  if (messageHistory[userId].length > 8) messageHistory[userId].shift();
+}
+
+async function isAISpam(userId, text) {
+  const history = messageHistory[userId] || [];
+  if (history.length < 3) return false; // not enough history to judge
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      signal: controller.signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 5,
+        messages: [{
+          role: 'user',
+          content: `You are a spam detector for a Rust game server chat. Look at this player's recent messages and decide if they are spamming.
+
+Spamming means: sending the same message repeatedly, sending random letters/characters, flooding chat with meaningless content.
+NOT spamming: celebrating after a race (ggs, lets go, wp), normal conversation, asking questions, even if repeated a couple times naturally.
+
+Recent messages from this player:
+${history.map((m, i) => `${i + 1}. "${m}"`).join('
+')}
+
+Is this spam? Reply ONLY with "yes" or "no".`
+        }]
+      })
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return data.content[0].text.trim().toLowerCase() === 'yes';
+  } catch (e) {
+    console.error('AI spam check error:', e.message);
+    return false;
+  }
 }
 
 function saveBlockedWords() {
@@ -375,11 +419,11 @@ function connect() {
       if (prisoned.has(userId)) return;
       if (releaseCooldowns.has(userId)) return;
 
-      // ── STEP 3: SPAM CHECK — instant, synchronous, runs before any async
-      const spamTriggered = isSpamming(userId);
-      const repeatTriggered = isRepeating(userId, text);
-
-      if (spamTriggered || repeatTriggered) {
+      // ── STEP 3: Track message history then AI spam check
+      trackMessage(userId, text);
+      const spamDetected = await isAISpam(userId, text);
+      console.log(`[AI SPAM] ${username}: ${spamDetected ? 'SPAM' : 'ok'}`);
+      if (spamDetected) {
         await prisonPlayer(userId, username, 'Spamming');
         return;
       }
