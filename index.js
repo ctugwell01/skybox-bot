@@ -8,6 +8,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const EXAMPLES_FILE = '/tmp/bot_examples.json';
+const BLOCKED_FILE = '/tmp/blocked_words.json';
 let savedExamples = {};
 try {
   if (fs.existsSync(EXAMPLES_FILE)) {
@@ -63,21 +64,53 @@ const SPAM_WINDOW  = 10000;
 const REPEAT_LIMIT = 3;
 const SPAM_TIMERS  = [5, 10, 30];
 
-const BLOCKED_WORDS = [
+let BLOCKED_WORDS = [
   'retard', 'retarded', 'spastic', 'spaz',
   'nigger', 'nigga', 'faggot', 'fag', 'tranny',
   'chink', 'kike', 'gook', 'wetback', 'beaner'
 ];
 
+// Load any extra blocked words added in game
+try {
+  if (fs.existsSync(BLOCKED_FILE)) {
+    const extra = JSON.parse(fs.readFileSync(BLOCKED_FILE, 'utf8'));
+    BLOCKED_WORDS = [...new Set([...BLOCKED_WORDS, ...extra])];
+    console.log(`Loaded ${extra.length} extra blocked words from file`);
+  }
+} catch (e) {
+  console.log('No extra blocked words file found');
+}
+
+function saveBlockedWords() {
+  // Save only the custom words (not the hardcoded ones)
+  const hardcoded = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner'];
+  const custom = BLOCKED_WORDS.filter(w => !hardcoded.includes(w));
+  fs.writeFileSync(BLOCKED_FILE, JSON.stringify(custom, null, 2));
+}
+
 let ws;
 let counter = 1;
 
 function containsBlockedWord(text) {
+  // Direct check
   if (BLOCKED_WORDS.some(word => text.includes(word))) return true;
-  const noSpaces = text.replace(/\s+/g, '');
+  // Remove all spaces and special chars
+  const noSpaces = text.replace(/[\s\-_.,\/\\]+/g, '');
   if (BLOCKED_WORDS.some(word => noSpaces.includes(word))) return true;
-  const normalised = text.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/\s+/g,'');
+  // Normalise numbers/symbols then remove spaces
+  const normalised = text
+    .replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o')
+    .replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s')
+    .replace(/[\s\-_.,\/\\]+/g,'');
   if (BLOCKED_WORDS.some(word => normalised.includes(word))) return true;
+  // Check each word in message joined with no gap (catches "re tard", "n igger" etc)
+  const words = text.split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    for (let j = i + 1; j <= Math.min(i + 3, words.length); j++) {
+      const joined = words.slice(i, j).join('');
+      if (BLOCKED_WORDS.some(word => joined.includes(word))) return true;
+    }
+  }
   return false;
 }
 
@@ -266,6 +299,53 @@ function connect() {
         if (!validCategories.includes(category)) { sendRcon(`say [Ruscar Bot]: Unknown category "${category}". Valid: ${validCategories.join(', ')}`); return; }
         const added = addExample(category, phrase);
         sendRcon(added ? `say [Ruscar Bot]: Got it! I will now recognise "${phrase}" as a ${category} question.` : `say [Ruscar Bot]: I already know that one!`);
+        return;
+      }
+
+      // ── Admin block command
+      if (text.startsWith('!block ')) {
+        const word = text.slice(7).trim().toLowerCase();
+        if (!word) { sendRcon(`say [Ruscar Bot]: Usage: !block <word>`); return; }
+        if (BLOCKED_WORDS.includes(word)) {
+          sendRcon(`say [Ruscar Bot]: "${word}" is already blocked!`);
+        } else {
+          BLOCKED_WORDS.push(word);
+          saveBlockedWords();
+          console.log(`New blocked word added: "${word}"`);
+          sendRcon(`say [Ruscar Bot]: ✅ "${word}" has been added to the blocklist.`);
+        }
+        return;
+      }
+
+      // ── Admin unblock command
+      if (text.startsWith('!unblock ')) {
+        const word = text.slice(9).trim().toLowerCase();
+        const hardcoded = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner'];
+        if (hardcoded.includes(word)) {
+          sendRcon(`say [Ruscar Bot]: Cannot remove hardcoded blocked words.`);
+          return;
+        }
+        const idx = BLOCKED_WORDS.indexOf(word);
+        if (idx === -1) {
+          sendRcon(`say [Ruscar Bot]: "${word}" is not in the blocklist.`);
+        } else {
+          BLOCKED_WORDS.splice(idx, 1);
+          saveBlockedWords();
+          console.log(`Blocked word removed: "${word}"`);
+          sendRcon(`say [Ruscar Bot]: ✅ "${word}" has been removed from the blocklist.`);
+        }
+        return;
+      }
+
+      // ── Admin blocklist view command
+      if (text === '!blocklist') {
+        const hardcoded = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner'];
+        const custom = BLOCKED_WORDS.filter(w => !hardcoded.includes(w));
+        if (custom.length === 0) {
+          sendRcon(`say [Ruscar Bot]: No custom blocked words added yet. Use !block <word> to add one.`);
+        } else {
+          sendRcon(`say [Ruscar Bot]: Custom blocked words: ${custom.join(', ')}`);
+        }
         return;
       }
 
