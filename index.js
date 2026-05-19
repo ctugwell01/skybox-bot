@@ -336,6 +336,7 @@ function connect() {
       if (releaseCooldowns.has(userId)) return;
 
       // Blocklist instant check
+      console.log('[BLOCKLIST CHECK] text: "' + text + '" caught: ' + containsBlockedWord(text));
       if (containsBlockedWord(text)) {
         await prisonPlayer(userId, username, 'Hate Speech');
         return;
