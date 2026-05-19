@@ -9,6 +9,7 @@ const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const EXAMPLES_FILE = '/tmp/bot_examples.json';
 const BLOCKED_FILE = '/tmp/blocked_words.json';
+const OFFENCES_FILE = '/tmp/spam_offences.json';
 let savedExamples = {};
 try {
   if (fs.existsSync(EXAMPLES_FILE)) {
@@ -86,6 +87,21 @@ function saveBlockedWords() {
   const hardcoded = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner'];
   const custom = BLOCKED_WORDS.filter(w => !hardcoded.includes(w));
   fs.writeFileSync(BLOCKED_FILE, JSON.stringify(custom, null, 2));
+}
+
+// Load persisted spam offences
+try {
+  if (fs.existsSync(OFFENCES_FILE)) {
+    const loaded = JSON.parse(fs.readFileSync(OFFENCES_FILE, 'utf8'));
+    Object.assign(spamOffences, loaded);
+    console.log(`Loaded spam offences for ${Object.keys(loaded).length} players`);
+  }
+} catch (e) {
+  console.log('No spam offences file found');
+}
+
+function saveOffences() {
+  fs.writeFileSync(OFFENCES_FILE, JSON.stringify(spamOffences, null, 2));
 }
 
 let ws;
@@ -181,6 +197,7 @@ async function prisonPlayer(userId, username, reason) {
   if (reason === 'Spamming') {
     const minutes = getSpamMinutes(userId);
     spamOffences[userId] = (spamOffences[userId] || 0) + 1;
+    saveOffences();
     if (minutes !== null) {
       console.log(`Spam offence #${spamOffences[userId]} from ${username} — ${minutes} mins`);
       await sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
@@ -269,7 +286,12 @@ function connect() {
   console.log('Connecting...');
   ws = new WebSocket(url);
 
-  ws.on('open', () => console.log('Connected to Rust RCON!'));
+  ws.on('open', () => {
+    console.log('Connected to Rust RCON!');
+    setTimeout(() => {
+      sendRcon('say [Ruscar Bot]: 🤖 Ruscar Bot is now online and monitoring chat.');
+    }, 2000);
+  });
 
   ws.on('message', async (data) => {
     try {
@@ -402,7 +424,10 @@ function connect() {
     }
   });
 
-  ws.on('close', () => { console.log('Disconnected, reconnecting in 5s...'); setTimeout(connect, 5000); });
+  ws.on('close', () => {
+    console.log('Disconnected, reconnecting in 5s...');
+    setTimeout(connect, 5000);
+  });
   ws.on('error', (err) => console.error('WS Error:', err.message));
 }
 
