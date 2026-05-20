@@ -6,6 +6,7 @@ const RCON_PORT = process.env.RCON_PORT || '28152';
 const RCON_PASS = process.env.RCON_PASS;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
+const DISCORD_VOICE_WEBHOOK = process.env.DISCORD_VOICE_WEBHOOK;
 
 const EXAMPLES_FILE = '/tmp/bot_examples.json';
 const BLOCKED_FILE  = '/tmp/blocked_words.json';
@@ -226,10 +227,10 @@ function connect() {
         const voiceText = line.slice(space2Idx + 1).toLowerCase();
         console.log('[VOICE MOD] ' + voiceUsername + ': ' + voiceText);
 
-        // Send to Discord as a voice log
-        if (DISCORD_WEBHOOK) {
+        // Send to Discord voice log channel
+        if (DISCORD_VOICE_WEBHOOK) {
           const steamUrl = 'https://steamcommunity.com/profiles/' + voiceSteamId;
-          await fetch(DISCORD_WEBHOOK, {
+          await fetch(DISCORD_VOICE_WEBHOOK, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Chat Transcript', color: 3447003, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: steamUrl, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] })
