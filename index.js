@@ -184,22 +184,43 @@ function connect() {
         const voiceSteamId = parts[0];
         const voiceUsername = parts[1];
         const voiceText = parts.slice(2).join(' ').toLowerCase().trim();
-        if (!voiceText || voiceText === '...' || voiceText.length < 2) return;
+        // Skip short/meaningless transcripts
+        const skipWords = ['you', 'yeah', 'yes', 'no', 'ok', 'okay', 'hi', 'hey', 'uh', 'um', 'hmm', '...', '.', 'the', 'a'];
+        if (!voiceText || voiceText.length < 4 || skipWords.includes(voiceText.trim())) return;
         console.log('[VOICE MOD] ' + voiceUsername + ': ' + voiceText);
-        if (DISCORD_VOICE_WEBHOOK) {
-          await fetch(DISCORD_VOICE_WEBHOOK, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Chat', color: 3447003, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] })
-          }).catch(function(e) { console.error('Discord voice error:', e.message); });
+
+        // Check blocklist first
+        if (containsBlockedWord(voiceText)) {
+          await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
+          if (DISCORD_VOICE_WEBHOOK) {
+            await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Slur Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
+          }
+          return;
         }
-        if (containsBlockedWord(voiceText)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); return; }
+
+        // AI threat check
         const vThreat = await callAI('Multilingual moderation. Does this contain threats or telling someone to harm themselves? Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vThreat === 'yes') { await prisonPlayer(voiceSteamId, voiceUsername, 'Threats (Voice)'); return; }
+        if (vThreat === 'yes') {
+          await prisonPlayer(voiceSteamId, voiceUsername, 'Threats (Voice)');
+          if (DISCORD_VOICE_WEBHOOK) {
+            await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Threat Detected', color: 15105570, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
+          }
+          return;
+        }
+
+        // AI slur check
         const vSlur = await callAI('Multilingual moderation. Does this contain racial slurs or hate speech in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
         if (vSlur === 'yes') {
-          if (warnedPlayers.has(voiceSteamId)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); warnedPlayers.delete(voiceSteamId); }
-          else { warnedPlayers.add(voiceSteamId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate voice language. Next offence = prison.'); }
+          if (warnedPlayers.has(voiceSteamId)) {
+            await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
+            warnedPlayers.delete(voiceSteamId);
+          } else {
+            warnedPlayers.add(voiceSteamId);
+            sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate voice language. Next offence = prison.');
+          }
+          if (DISCORD_VOICE_WEBHOOK) {
+            await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Hate Speech Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
+          }
         }
         return;
       }
