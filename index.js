@@ -218,6 +218,28 @@ function connect() {
 
       if (prisoned.has(userId) || releaseCooldowns.has(userId)) return;
 
+      // Handle voice transcripts from VoiceMonitor plugin
+      if (msg.Type === 'Generic' && rawText && rawText.startsWith('voicetranscript ')) {
+        const parts = rawText.slice(16).split(' ');
+        const voiceUserId = parts[0];
+        const voiceUsername = parts[1];
+        const voiceText = parts.slice(2).join(' ').toLowerCase();
+        console.log('[VOICE TRANSCRIPT] ' + voiceUsername + ': ' + voiceText);
+
+        if (containsBlockedWord(voiceText)) {
+          await prisonPlayer(voiceUserId, voiceUsername, 'Hate Speech (Voice)');
+          return;
+        }
+        const vThreat = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain threats, telling someone to harm themselves, death wishes, or violent threats? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        if (vThreat === 'yes') { await prisonPlayer(voiceUserId, voiceUsername, 'Threats (Voice)'); return; }
+        const vSlur = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain racial slurs, hate speech or discriminatory language in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        if (vSlur === 'yes') {
+          if (warnedPlayers.has(voiceUserId)) { await prisonPlayer(voiceUserId, voiceUsername, 'Hate Speech (Voice)'); warnedPlayers.delete(voiceUserId); }
+          else { warnedPlayers.add(voiceUserId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate language in voice chat. Next offence = prison.'); }
+        }
+        return;
+      }
+
       // 1. Instant blocklist check
       if (containsBlockedWord(text)) {
         console.log('[BLOCKLIST] caught: ' + text);
