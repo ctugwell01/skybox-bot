@@ -80,11 +80,17 @@ try {
 const HARDCODED_WORDS = [...BLOCKED_WORDS];
 
 const THREAT_WORDS = [
-  'kys', 'kill yourself', 'go die', 'go kill yourself',
-  'end yourself', 'neck yourself', 'rope yourself',
-  'drink bleach', 'i will kill you', 'ill kill you',
+  'kys', 'kill yourself', 'kill urself', 'kill ur self', 'kill your self',
+  'go die', 'go kill yourself', 'go kill urself',
+  'end yourself', 'end urself',
+  'neck yourself', 'neck urself',
+  'rope yourself', 'rope urself',
+  'hang yourself', 'hang urself', 'hang ur self',
+  'drink bleach',
+  'i will kill you', 'ill kill you', 'ima kill you',
   'i hope you die', 'hope you die', 'you should die',
-  'kill ur self', 'kill your self'
+  'top yourself', 'top urself',
+  'unalive yourself', 'unalive urself'
 ];
 
 function containsThreat(text) {
@@ -297,6 +303,39 @@ process.on('SIGINT', function() {
   }
 });
 
+async function checkThreat(text) {
+  // Quick blocklist first for obvious ones
+  if (THREAT_WORDS.some(phrase => text.includes(phrase))) return true;
+  // AI check for everything else
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(function() { controller.abort(); }, 5000);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      signal: controller.signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 5,
+        messages: [{ role: 'user', content: 'You are a moderation bot for a Rust game server. Does this message contain direct threats, telling someone to harm themselves, wishing death on someone, or serious personal threats?
+
+Examples that ARE threats: "go die", "hang urself", "kys", "i hope you die", "kill yourself", "neck yourself"
+Examples that are NOT threats: "you suck", "noob", "trash player", "get rekt", normal trash talk
+
+Reply ONLY with "yes" or "no".
+
+Message: "' + text + '"' }]
+      })
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return data.content[0].text.trim().toLowerCase() === 'yes';
+  } catch (e) {
+    console.error('AI threat check error:', e.message);
+    return false;
+  }
+}
+
 function connect() {
   const url = 'ws://' + RCON_HOST + ':' + RCON_PORT + '/' + RCON_PASS;
   console.log('Connecting...');
@@ -381,9 +420,10 @@ function connect() {
         return;
       }
 
-      // Threat check — instant prison
-      if (containsThreat(text)) {
-        console.log('Threat detected from ' + username);
+      // Threat check — AI powered
+      const isThreat = await checkThreat(text);
+      console.log('[THREAT CHECK] ' + username + ': ' + (isThreat ? 'THREAT' : 'ok'));
+      if (isThreat) {
         await prisonPlayer(userId, username, 'Threats');
         return;
       }
