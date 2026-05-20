@@ -225,6 +225,34 @@ function connect() {
         return;
       }
 
+      // Handle AssemblyAI flagged voice content
+      if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICE FLAGGED]')) {
+        const line = msg.Message.slice(msg.Message.indexOf('[VOICE FLAGGED] ') + 16).trim();
+        const parenStart = line.indexOf('(');
+        const parenEnd = line.indexOf(')');
+        const dashIdx = line.indexOf(' — said: ');
+        const voiceUsername = line.slice(0, parenStart).trim();
+        const voiceSteamId = line.slice(parenStart + 1, parenEnd);
+        const voiceText = dashIdx !== -1 ? line.slice(dashIdx + 9).toLowerCase() : '';
+        console.log('[VOICE FLAGGED] ' + voiceUsername + ': ' + voiceText);
+        if (DISCORD_VOICE_WEBHOOK) {
+          await fetch(DISCORD_VOICE_WEBHOOK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Hate Speech Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] })
+          }).catch(function(e) { console.error('Discord voice error:', e.message); });
+        }
+        if (containsBlockedWord(voiceText)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); return; }
+        if (warnedPlayers.has(voiceSteamId)) {
+          await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
+          warnedPlayers.delete(voiceSteamId);
+        } else {
+          warnedPlayers.add(voiceSteamId);
+          sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate language in voice chat. Next offence = prison.');
+        }
+        return;
+      }
+
       if (msg.Type !== 'Chat') return;
       let inner;
       try { inner = JSON.parse(msg.Message); } catch { return; }
