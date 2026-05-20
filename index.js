@@ -236,13 +236,13 @@ function connect() {
       }
 
       // 3. AI threat check
-      const threatPrompt = 'Rust game server moderation. Does this message contain threats, telling someone to harm themselves, death wishes, or serious personal threats? Examples of threats: go die, hang yourself, kys, kill yourself, i hope you die. Normal trash talk like "noob" or "you suck" is NOT a threat. Reply yes or no only. Message: "' + text + '"';
+      const threatPrompt = 'You are a multilingual content moderator for a game server. Analyze this message in ANY language. Does it contain: death wishes, telling someone to kill/harm themselves, serious violent threats, or wishing harm on someone? You must detect this in English, French, Spanish, German, Portuguese, Italian, Dutch, Russian, Arabic, Turkish, Polish, Romanian, or any other language. Subtle variations and slang count too. Casual trash talk like noob or you suck does NOT count. Answer yes or no only. Message: "' + text + '"';
       const threatResult = await callAI(threatPrompt, 5);
       console.log('[THREAT] ' + username + ': ' + threatResult);
       if (threatResult === 'yes') { await prisonPlayer(userId, username, 'Threats'); return; }
 
       // 4. AI slur check
-      const slurPrompt = 'Rust game server moderation. Does this message contain racial slurs, hate speech or discriminatory language including misspellings or variations? Reply yes or no only. Message: "' + text + '"';
+      const slurPrompt = 'You are a multilingual content moderator for a game server. Analyze this message in ANY language. Does it contain racial slurs, hate speech, homophobic slurs, discriminatory language, or derogatory terms targeting someone based on race, ethnicity, religion, sexuality, or nationality? You must detect this in English, French, Spanish, German, Portuguese, Italian, Dutch, Russian, Arabic, Turkish, Polish, Romanian, or any other language. Intentional misspellings and leetspeak count too. Answer yes or no only. Message: "' + text + '"';
       const slurResult = await callAI(slurPrompt, 5);
       console.log('[SLUR] ' + username + ': ' + slurResult);
       if (slurResult === 'yes') {
