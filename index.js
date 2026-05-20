@@ -177,6 +177,33 @@ function connect() {
   ws.on('message', async function(data) {
     try {
       const msg = JSON.parse(data.toString());
+      // Handle voice transcripts from Generic console output
+      if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICETRANSCRIPT]')) {
+        const line = msg.Message.slice(msg.Message.indexOf('[VOICETRANSCRIPT] ') + 18).trim();
+        const parts = line.split(' ');
+        const voiceSteamId = parts[0];
+        const voiceUsername = parts[1];
+        const voiceText = parts.slice(2).join(' ').toLowerCase().trim();
+        if (!voiceText || voiceText === '...' || voiceText.length < 2) return;
+        console.log('[VOICE MOD] ' + voiceUsername + ': ' + voiceText);
+        if (DISCORD_VOICE_WEBHOOK) {
+          await fetch(DISCORD_VOICE_WEBHOOK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Chat', color: 3447003, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] })
+          }).catch(function(e) { console.error('Discord voice error:', e.message); });
+        }
+        if (containsBlockedWord(voiceText)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); return; }
+        const vThreat = await callAI('Multilingual moderation. Does this contain threats or telling someone to harm themselves? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        if (vThreat === 'yes') { await prisonPlayer(voiceSteamId, voiceUsername, 'Threats (Voice)'); return; }
+        const vSlur = await callAI('Multilingual moderation. Does this contain racial slurs or hate speech in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        if (vSlur === 'yes') {
+          if (warnedPlayers.has(voiceSteamId)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); warnedPlayers.delete(voiceSteamId); }
+          else { warnedPlayers.add(voiceSteamId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate voice language. Next offence = prison.'); }
+        }
+        return;
+      }
+
       if (msg.Type !== 'Chat') return;
       let inner;
       try { inner = JSON.parse(msg.Message); } catch { return; }
@@ -217,37 +244,7 @@ function connect() {
         sendRcon(custom.length === 0 ? 'say [Ruscar Bot]: No custom blocked words yet.' : 'say [Ruscar Bot]: Custom words: ' + custom.join(', ')); return;
       }
 
-      // Handle voice transcripts from VoiceMonitor plugin (Generic console output via Puts)
-      if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICETRANSCRIPT] ')) {
-        const line = msg.Message.slice(msg.Message.indexOf('[VOICETRANSCRIPT] ') + 18).trim();
-        const spaceIdx = line.indexOf(' ');
-        const space2Idx = line.indexOf(' ', spaceIdx + 1);
-        const voiceSteamId = line.slice(0, spaceIdx);
-        const voiceUsername = line.slice(spaceIdx + 1, space2Idx);
-        const voiceText = line.slice(space2Idx + 1).toLowerCase();
-        console.log('[VOICE MOD] ' + voiceUsername + ': ' + voiceText);
 
-        // Send to Discord voice log channel
-        if (DISCORD_VOICE_WEBHOOK) {
-          const steamUrl = 'https://steamcommunity.com/profiles/' + voiceSteamId;
-          await fetch(DISCORD_VOICE_WEBHOOK, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Chat Transcript', color: 3447003, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: steamUrl, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] })
-          }).catch(function(e) { console.error('Discord voice log error:', e.message); });
-        }
-
-        // Run AI moderation on transcript
-        if (containsBlockedWord(voiceText)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); return; }
-        const vThreat = await callAI('Multilingual moderation. Does this contain threats or telling someone to harm themselves? Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vThreat === 'yes') { await prisonPlayer(voiceSteamId, voiceUsername, 'Threats (Voice)'); return; }
-        const vSlur = await callAI('Multilingual moderation. Does this contain racial slurs or hate speech in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vSlur === 'yes') {
-          if (warnedPlayers.has(voiceSteamId)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); warnedPlayers.delete(voiceSteamId); }
-          else { warnedPlayers.add(voiceSteamId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate voice language. Next offence = prison.'); }
-        }
-        return;
-      }
 
       if (prisoned.has(userId) || releaseCooldowns.has(userId)) return;
 
