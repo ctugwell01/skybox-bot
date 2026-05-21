@@ -180,10 +180,11 @@ function connect() {
       // Handle voice transcripts from Generic console output
       if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICETRANSCRIPT]')) {
         const line = msg.Message.slice(msg.Message.indexOf('[VOICETRANSCRIPT] ') + 18).trim();
-        const parts = line.split(' ');
+        const parts = line.trim().split(/\s+/); // split on any whitespace to handle double spaces
         const voiceSteamId = parts[0];
         const voiceUsername = parts[1];
         const voiceText = parts.slice(2).join(' ').toLowerCase().trim();
+        console.log('[VOICE DEBUG] steamId=' + voiceSteamId + ' user=' + voiceUsername + ' text=' + voiceText);
         // Skip short/meaningless transcripts
         const skipWords = ['you', 'yeah', 'yes', 'no', 'ok', 'okay', 'hi', 'hey', 'uh', 'um', 'hmm', '...', '.', 'the', 'a'];
         if (!voiceText || voiceText.length < 4 || skipWords.includes(voiceText.trim())) return;
