@@ -1,381 +1,266 @@
-const WebSocket = require('ws');
-const fs = require('fs');
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+using Oxide.Core;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+using UnityEngine.Networking;
 
-const RCON_HOST = process.env.RCON_HOST;
-const RCON_PORT = process.env.RCON_PORT || '28152';
-const RCON_PASS = process.env.RCON_PASS;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
-const DISCORD_VOICE_WEBHOOK = process.env.DISCORD_VOICE_WEBHOOK;
+namespace Oxide.Plugins
+{
+    [Info("VoiceMonitor", "5HeadNN", "1.5.0")]
+    [Description("Monitors voice chat using Deepgram Nova-3")]
+    public class VoiceMonitor : RustPlugin
+    {
+        private readonly Dictionary<ulong, List<byte[]>> _voiceBuffer = new Dictionary<ulong, List<byte[]>>();
+        private readonly Dictionary<ulong, float> _lastSendTime = new Dictionary<ulong, float>();
+        private readonly HashSet<ulong> _processing = new HashSet<ulong>();
 
-const EXAMPLES_FILE = '/tmp/bot_examples.json';
-const BLOCKED_FILE  = '/tmp/blocked_words.json';
-const OFFENCES_FILE = '/tmp/spam_offences.json';
+        private class KeyConfig { public string ApiKey = ""; }
+        private KeyConfig _config = new KeyConfig();
 
-let savedExamples = {};
-try { if (fs.existsSync(EXAMPLES_FILE)) { savedExamples = JSON.parse(fs.readFileSync(EXAMPLES_FILE, 'utf8')); console.log('Loaded ' + Object.keys(savedExamples).length + ' example categories'); } } catch(e) {}
+        private const float BUFFER_SECONDS = 4f;  // send every 4 seconds
+        private const int MIN_CHUNKS = 5;           // minimum chunks before sending
+        private const float SILENCE_THRESHOLD = 1f; // send early if 1s of silence
+        private const int SAMPLE_RATE = 24000;
+        private const int SAMPLES_PER_FRAME = 480; // 20ms at 24000Hz
 
-function saveExamples() { fs.writeFileSync(EXAMPLES_FILE, JSON.stringify(savedExamples, null, 2)); }
-function addExample(category, phrase) {
-  if (!savedExamples[category]) savedExamples[category] = [];
-  if (!savedExamples[category].includes(phrase)) { savedExamples[category].push(phrase); saveExamples(); return true; }
-  return false;
-}
-function buildExamplesPrompt() {
-  if (Object.keys(savedExamples).length === 0) return '';
-  let p = '\n\nAdditional examples learned from admins:';
-  for (const [cat, phrases] of Object.entries(savedExamples)) p += '\n- "' + cat + '": ' + phrases.map(function(x) { return '"' + x + '"'; }).join(', ');
-  return p;
-}
+        // OGG MSB-first CRC32
+        private static uint OggCrc32(byte[] data)
+        {
+            uint crc = 0;
+            foreach (byte b in data)
+            {
+                crc ^= (uint)b << 24;
+                for (int j = 0; j < 8; j++)
+                    crc = (crc & 0x80000000u) != 0 ? ((crc << 1) ^ 0x04c11db7u) : (crc << 1);
+            }
+            return crc;
+        }
 
-const COMMANDS = [
-  { id: 'skybox',  reply: 'say [Ruscar Bot]: First go through the track portal, then type /view in chat to get into the skybox!' },
-  { id: 'leader',  reply: 'say [Ruscar Bot]: To see who is winning type /pos in chat! If there is no active race type /race leaders instead!' },
-  { id: 'portal',  reply: 'say [Ruscar Bot]: Not sure which portal? Check the MIDDLE board at the race hub -- it shows the current/next league race map!' },
-  { id: 'modtool', reply: 'say [Ruscar Bot]: Ask 5HeadNN and he will give you one, please be patient!' },
-  { id: 'food',    reply: 'say [Ruscar Bot]: Type /kit in chat and redeem the food kit!' },
-  { id: 'none',    reply: null }
-];
+        private static byte[] BuildOggOpus(List<byte[]> frames)
+        {
+            var result = new List<byte>();
+            uint serial = 0x12345678;
+            uint pageSeq = 0;
+            long granulePos = 0;
 
-const spamOffences    = {};
-const prisoned        = new Set();
-const playerCooldowns = new Set();
-const releaseCooldowns = new Set();
-const warnedPlayers   = new Set();
-const messageHistory  = {};
+            byte[] MakePage(byte[] pageData, bool bos, bool eos)
+            {
+                // Build lacing values
+                var lacing = new List<byte>();
+                int rem = pageData.Length;
+                while (rem > 255) { lacing.Add(255); rem -= 255; }
+                lacing.Add((byte)rem);
 
-try { if (fs.existsSync(OFFENCES_FILE)) { const l = JSON.parse(fs.readFileSync(OFFENCES_FILE, 'utf8')); Object.assign(spamOffences, l); console.log('Loaded offences for ' + Object.keys(l).length + ' players'); } } catch(e) {}
-function saveOffences() { fs.writeFileSync(OFFENCES_FILE, JSON.stringify(spamOffences, null, 2)); }
+                byte[] page = new byte[27 + lacing.Count + pageData.Length];
+                // capture_pattern
+                page[0]=(byte)'O'; page[1]=(byte)'g'; page[2]=(byte)'g'; page[3]=(byte)'S';
+                page[4] = 0; // stream_structure_version
+                page[5] = (byte)((bos?0x02:0)|(eos?0x04:0)); // header_type_flag
+                // granule_position (int64 LE)
+                long gp = bos ? 0 : granulePos;
+                for (int i=0;i<8;i++) page[6+i]=(byte)(gp>>(i*8));
+                // bitstream_serial_number
+                for (int i=0;i<4;i++) page[14+i]=(byte)(serial>>(i*8));
+                // page_sequence_number
+                for (int i=0;i<4;i++) page[18+i]=(byte)(pageSeq>>(i*8));
+                pageSeq++;
+                // checksum = 0 for CRC calculation
+                page[22]=0; page[23]=0; page[24]=0; page[25]=0;
+                // number_page_segments
+                page[26]=(byte)lacing.Count;
+                for (int i=0;i<lacing.Count;i++) page[27+i]=lacing[i];
+                Buffer.BlockCopy(pageData, 0, page, 27+lacing.Count, pageData.Length);
+                // compute and insert CRC
+                uint crc = OggCrc32(page);
+                page[22]=(byte)crc; page[23]=(byte)(crc>>8);
+                page[24]=(byte)(crc>>16); page[25]=(byte)(crc>>24);
+                return page;
+            }
 
-let BLOCKED_WORDS = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner'];
-try { if (fs.existsSync(BLOCKED_FILE)) { const extra = JSON.parse(fs.readFileSync(BLOCKED_FILE, 'utf8')); BLOCKED_WORDS = [...new Set([...BLOCKED_WORDS, ...extra])]; console.log('Loaded ' + extra.length + ' extra blocked words'); } } catch(e) {}
-const HARDCODED_WORDS = [...BLOCKED_WORDS];
-function saveBlockedWords() { const custom = BLOCKED_WORDS.filter(function(w) { return !HARDCODED_WORDS.includes(w); }); fs.writeFileSync(BLOCKED_FILE, JSON.stringify(custom, null, 2)); }
+            // OpusHead - identification header
+            // sample rate MUST match what encoder used (24000)
+            byte[] opusHead = new byte[] {
+                0x4F,0x70,0x75,0x73,0x48,0x65,0x61,0x64, // "OpusHead"
+                0x01,       // version = 1
+                0x01,       // channel count = 1 (mono)
+                0x00,0x00,  // pre-skip = 0
+                // input_sample_rate = 24000 = 0x00005DC0 (little endian)
+                0xC0,0x5D,0x00,0x00,
+                0x00,0x00,  // output_gain = 0
+                0x00        // channel mapping family = 0
+            };
+            result.AddRange(MakePage(opusHead, true, false));
 
-const SPAM_TIMERS = [5, 10, 30];
-let ws;
-let counter = 1;
+            // OpusTags - comment header
+            byte[] vendor = Encoding.UTF8.GetBytes("RuscarBot");
+            var tags = new List<byte>();
+            tags.AddRange(Encoding.UTF8.GetBytes("OpusTags"));
+            // vendor string length (LE uint32)
+            tags.Add((byte)vendor.Length); tags.Add(0); tags.Add(0); tags.Add(0);
+            tags.AddRange(vendor);
+            // user comment list length = 0
+            tags.Add(0); tags.Add(0); tags.Add(0); tags.Add(0);
+            result.AddRange(MakePage(tags.ToArray(), false, false));
 
-function containsBlockedWord(text) {
-  if (BLOCKED_WORDS.some(function(w) { return text.includes(w); })) return true;
-  const noSpaces = text.replace(/[\s\-_.,/\\]+/g, '');
-  if (BLOCKED_WORDS.some(function(w) { return noSpaces.includes(w); })) return true;
-  const norm = text.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/[\s\-_.,/\\]+/g,'');
-  if (BLOCKED_WORDS.some(function(w) { return norm.includes(w); })) return true;
-  const words = text.split(/\s+/);
-  for (let i = 0; i < words.length; i++) {
-    for (let j = i + 1; j <= Math.min(i + 3, words.length); j++) {
-      const joined = words.slice(i, j).join('');
-      if (BLOCKED_WORDS.some(function(w) { return joined.includes(w); })) return true;
+            // Audio pages — one Opus frame per page
+            for (int i = 0; i < frames.Count; i++)
+            {
+                granulePos += SAMPLES_PER_FRAME;
+                bool last = (i == frames.Count - 1);
+                result.AddRange(MakePage(frames[i], false, last));
+            }
+
+            return result.ToArray();
+        }
+
+        private static List<byte[]> ParseSteamVoice(byte[][] chunks)
+        {
+            var frames = new List<byte[]>();
+            foreach (var chunk in chunks)
+            {
+                if (chunk.Length < 9) continue;
+                int pos = 8; // skip 8-byte Steam header
+                while (pos < chunk.Length - 2)
+                {
+                    byte ptype = chunk[pos++];
+                    if (ptype == 0x0B) { pos += 2; continue; } // sample rate, skip 2 bytes
+                    if (ptype == 0x06)
+                    {
+                        if (pos + 2 > chunk.Length) break;
+                        int chunkSize = chunk[pos] | (chunk[pos+1]<<8); pos += 2;
+                        int chunkEnd = pos + chunkSize;
+                        while (pos + 4 <= chunkEnd && pos + 4 <= chunk.Length)
+                        {
+                            int fsize = chunk[pos] | (chunk[pos+1]<<8); pos += 2;
+                            if (fsize == 0xFFFF) break; // end of transmission
+                            pos += 2; // skip sequence number
+                            // fsize includes the full opus frame - DO NOT skip 0x68, it's part of the data
+                            if (fsize > 0 && pos + fsize <= chunk.Length)
+                            {
+                                var frame = new byte[fsize];
+                                Buffer.BlockCopy(chunk, pos, frame, 0, fsize);
+                                if (fsize > 3) frames.Add(frame); // skip silence frames
+                            }
+                            pos += fsize;
+                        }
+                        pos = chunkEnd; // move past this chunk
+                        continue;
+                    }
+                    if (ptype == 0x00) { pos += 2; continue; } // silence payload
+                    break; // unknown type
+                }
+            }
+            return frames;
+        }
+
+        private void Init()
+        {
+            _config = Interface.Oxide.DataFileSystem.ReadObject<KeyConfig>("VoiceMonitorKey") ?? new KeyConfig();
+            if (string.IsNullOrEmpty(_config.ApiKey))
+                Puts("[VoiceMonitor] v1.5.0 WARNING: No Deepgram API key set! Use: voicemonitor.setkey YOUR_KEY");
+            else
+                Puts("[VoiceMonitor] v1.5.0 Started — monitoring voice chat with Deepgram Nova-3.");
+        }
+
+        [ConsoleCommand("voicemonitor.setkey")]
+        private void SetKeyCommand(ConsoleSystem.Arg arg)
+        {
+            if (arg.Args == null || arg.Args.Length < 1) { Puts("Usage: voicemonitor.setkey YOUR_KEY"); return; }
+            _config.ApiKey = arg.Args[0];
+            Interface.Oxide.DataFileSystem.WriteObject("VoiceMonitorKey", _config);
+            Puts("[VoiceMonitor] Deepgram API key saved.");
+        }
+
+        private void OnTick()
+        {
+            if (string.IsNullOrEmpty(_config.ApiKey)) return;
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            foreach (var uid in new List<ulong>(_voiceBuffer.Keys))
+            {
+                if (_processing.Contains(uid)) continue;
+                if (!_voiceBuffer.ContainsKey(uid) || _voiceBuffer[uid].Count < MIN_CHUNKS) continue;
+                float lastPacket = _lastSendTime.ContainsKey(uid) ? _lastSendTime[uid] : now;
+                // Send if we've been silent for 1 second (natural pause) or buffer is 4s old
+                bool silenced = (now - lastPacket) > SILENCE_THRESHOLD;
+                bool buffered = _voiceBuffer[uid].Count >= MIN_CHUNKS * 4;
+                if (silenced || buffered)
+                {
+                    var player = BasePlayer.FindByID(uid);
+                    if (player == null) { _voiceBuffer.Remove(uid); continue; }
+                    var chunks = _voiceBuffer[uid].ToArray();
+                    _voiceBuffer[uid].Clear();
+                    _processing.Add(uid);
+                    ServerMgr.Instance.StartCoroutine(TranscribeCoroutine(uid, player.displayName, player.UserIDString, chunks));
+                }
+            }
+        }
+
+        private void OnPlayerVoice(BasePlayer player, byte[] data)
+        {
+            if (player == null || data == null || data.Length == 0) return;
+            if (string.IsNullOrEmpty(_config.ApiKey)) return;
+            if (_processing.Contains(player.userID)) return;
+
+            ulong uid = player.userID;
+            if (!_voiceBuffer.ContainsKey(uid)) _voiceBuffer[uid] = new List<byte[]>();
+            if (!_lastSendTime.ContainsKey(uid)) _lastSendTime[uid] = UnityEngine.Time.realtimeSinceStartup;
+            _voiceBuffer[uid].Add((byte[])data.Clone());
+            _lastSendTime[uid] = UnityEngine.Time.realtimeSinceStartup; // reset on each packet
+
+            // Sending handled by OnTick for silence detection
+        }
+
+        private IEnumerator TranscribeCoroutine(ulong uid, string username, string steamId, byte[][] chunks)
+        {
+            var frames = ParseSteamVoice(chunks);
+            Puts("[VoiceMonitor] Parsed " + frames.Count + " Opus frames");
+            if (frames.Count == 0) { _processing.Remove(uid); yield break; }
+
+            byte[] ogg = BuildOggOpus(frames);
+            // Calculate average frame size - low average = mostly silence
+            int totalBytes = 0;
+            foreach (var f in frames) totalBytes += f.Length;
+            int avgSize = frames.Count > 0 ? totalBytes / frames.Count : 0;
+            Puts("[VoiceMonitor] Frames: " + frames.Count + " avg size: " + avgSize + " bytes");
+            // Skip if average frame size is too small - means mostly silence
+            if (avgSize < 20) { Puts("[VoiceMonitor] Skipping - mostly silence"); _processing.Remove(uid); yield break; }
+            Puts("[VoiceMonitor] OGG: " + ogg.Length + " bytes → Deepgram...");
+
+            // Send to Deepgram Nova-3 — does NOT censor slurs
+            // profanity=false means slurs transcribed as-is
+            string dgUrl = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true&profanity_filter=false";
+
+            var req = new UnityWebRequest(dgUrl, "POST");
+            req.uploadHandler = new UploadHandlerRaw(ogg);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Authorization", "Token " + _config.ApiKey);
+            req.SetRequestHeader("Content-Type", "audio/ogg; codecs=opus");
+
+            yield return req.SendWebRequest();
+            _processing.Remove(uid);
+
+            if (req.responseCode != 200) { Puts("[VoiceMonitor] Deepgram error " + req.responseCode + ": " + req.downloadHandler.text); yield break; }
+
+            try
+            {
+                var json = JObject.Parse(req.downloadHandler.text);
+                string transcript = json["results"]?["channels"]?[0]?["alternatives"]?[0]?["transcript"]?.Value<string>() ?? "";
+                if (string.IsNullOrWhiteSpace(transcript)) { Puts("[VoiceMonitor] Empty transcript — raw: " + req.downloadHandler.text.Substring(0, Math.Min(200, req.downloadHandler.text.Length))); yield break; }
+                Puts("[VoiceMonitor] ✅ Transcript: \"" + transcript + "\"");
+                Puts("[VOICETRANSCRIPT] " + steamId + " " + username + " " + transcript);
+            }
+            catch (Exception ex) { Puts("[VoiceMonitor] Parse error: " + ex.Message); }
+        }
+
+        private void OnPlayerDisconnected(BasePlayer player, string reason)
+        {
+            if (player == null) return;
+            _voiceBuffer.Remove(player.userID);
+            _lastSendTime.Remove(player.userID);
+            _processing.Remove(player.userID);
+        }
     }
-  }
-  return false;
 }
-
-function extractPlayerMessage(raw) {
-  const parts = raw.split(': ');
-  return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
-}
-
-function getSpamMinutes(userId) {
-  const offence = spamOffences[userId] || 0;
-  return offence < SPAM_TIMERS.length ? SPAM_TIMERS[offence] : null;
-}
-
-function trackMessage(userId, text) {
-  if (!messageHistory[userId]) messageHistory[userId] = [];
-  messageHistory[userId].push(text);
-  if (messageHistory[userId].length > 8) messageHistory[userId].shift();
-}
-
-function sendRcon(command) {
-  ws.send(JSON.stringify({ Identifier: counter++, Message: command, Name: 'Bot' }));
-}
-
-async function callAI(prompt, maxTokens) {
-  try {
-    const controller = new AbortController();
-    const t = setTimeout(function() { controller.abort(); }, 5000);
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      signal: controller.signal,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] })
-    });
-    clearTimeout(t);
-    const data = await res.json();
-    return data.content[0].text.trim().toLowerCase();
-  } catch(e) {
-    console.error('AI error:', e.message);
-    return '';
-  }
-}
-
-async function sendDiscordAlert(username, userId, reason, offence) {
-  if (!DISCORD_WEBHOOK) return;
-  try {
-    await fetch(DISCORD_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [{ title: 'Player Auto Prisoned', color: reason === 'Hate Speech' ? 15158332 : 15105570, fields: [{ name: 'Player', value: username, inline: true }, { name: 'Reason', value: reason, inline: true }, { name: 'Steam Profile', value: 'https://steamcommunity.com/profiles/' + userId, inline: false }, { name: 'Offence', value: offence ? '#' + offence : 'Permanent', inline: true }], timestamp: new Date().toISOString() }] })
-    });
-    console.log('Discord alert sent for ' + username);
-  } catch(e) { console.error('Discord error:', e.message); }
-}
-
-async function prisonPlayer(userId, username, reason) {
-  if (prisoned.has(userId)) return;
-  prisoned.add(userId);
-  delete messageHistory[userId];
-  if (reason === 'Spamming') {
-    const minutes = getSpamMinutes(userId);
-    spamOffences[userId] = (spamOffences[userId] || 0) + 1;
-    saveOffences();
-    if (minutes !== null) {
-      await sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
-      sendRcon('prison ' + userId + ' Spamming');
-      sendRcon('say [Ruscar Bot]: ' + username + ' has been automatically prisoned for spamming. You have ' + minutes + ' minute(s) remaining.');
-      setTimeout(function() {
-        sendRcon('unjail ' + userId);
-        prisoned.delete(userId);
-        releaseCooldowns.add(userId);
-        setTimeout(function() { releaseCooldowns.delete(userId); }, 60000);
-      }, minutes * 60 * 1000);
-    } else {
-      await sendDiscordAlert(username, userId, 'Spamming', spamOffences[userId]);
-      sendRcon('prison ' + userId + ' Spamming');
-      sendRcon('say [Ruscar Bot]: ' + username + ' has been permanently prisoned for repeated spamming.');
-    }
-  } else {
-    await sendDiscordAlert(username, userId, reason, null);
-    console.log('[RCON] Sending: prison ' + userId + ' ' + reason);
-    sendRcon('prison ' + userId + ' ' + reason);
-    if (reason === 'Threats') {
-      sendRcon('say [Ruscar Bot]: ' + username + ' has been automatically prisoned for making threats.');
-    } else {
-      sendRcon('say [Ruscar Bot]: ' + username + ' has been automatically prisoned for using hate speech.');
-    }
-  }
-}
-
-process.on('SIGTERM', function() {
-  try { sendRcon('say [Ruscar Bot]: Updating code, back in a moment!'); setTimeout(function() { process.exit(0); }, 1500); } catch(e) { process.exit(0); }
-});
-process.on('SIGINT', function() {
-  try { sendRcon('say [Ruscar Bot]: Updating code, back in a moment!'); setTimeout(function() { process.exit(0); }, 1500); } catch(e) { process.exit(0); }
-});
-
-function connect() {
-  const url = 'ws://' + RCON_HOST + ':' + RCON_PORT + '/' + RCON_PASS;
-  console.log('Connecting...');
-  ws = new WebSocket(url);
-
-  ws.on('open', function() {
-    console.log('Connected to Rust RCON!');
-    setTimeout(function() { sendRcon('say [Ruscar Bot]: Update complete! Ruscar Bot is back online and monitoring chat!'); }, 2000);
-  });
-
-  ws.on('message', async function(data) {
-    try {
-      const msg = JSON.parse(data.toString());
-      // Handle voice transcripts from Generic console output
-      if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICETRANSCRIPT]')) {
-        const line = msg.Message.slice(msg.Message.indexOf('[VOICETRANSCRIPT] ') + 18).trim();
-        const parts = line.trim().split(/\s+/); // split on any whitespace to handle double spaces
-        const voiceSteamId = parts[0];
-        const voiceUsername = parts[1];
-        const voiceText = parts.slice(2).join(' ').toLowerCase().trim();
-        console.log('[VOICE DEBUG] steamId=' + voiceSteamId + ' user=' + voiceUsername + ' text=' + voiceText);
-        // Skip short/meaningless transcripts
-        const skipWords = ['you', 'yeah', 'yes', 'no', 'ok', 'okay', 'hi', 'hey', 'uh', 'um', 'hmm', '...', '.', 'the', 'a'];
-        if (!voiceText || voiceText.length < 4 || skipWords.includes(voiceText.trim())) return;
-        console.log('[VOICE MOD] ' + voiceUsername + ': ' + voiceText);
-
-        // Check blocklist first
-        if (containsBlockedWord(voiceText)) {
-          console.log('[VOICE PRISON] Attempting to prison ' + voiceUsername + ' (' + voiceSteamId + ')');
-          await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
-          console.log('[VOICE PRISON] Prison command sent for ' + voiceUsername);
-          if (DISCORD_VOICE_WEBHOOK) {
-            await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Slur Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
-          }
-          return;
-        }
-
-        // AI threat check
-        const vThreat = await callAI('Multilingual moderation. Does this contain threats or telling someone to harm themselves? Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vThreat === 'yes') {
-          await prisonPlayer(voiceSteamId, voiceUsername, 'Threats (Voice)');
-          if (DISCORD_VOICE_WEBHOOK) {
-            await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Threat Detected', color: 15105570, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
-          }
-          return;
-        }
-
-        // AI slur check
-        const vSlur = await callAI('You are moderating a Rust game server voice chat. Speech-to-text software censors slurs by replacing them with similar sounding words. Does this transcript likely contain a racial slur, hate speech, or threat even if the slur was replaced by a similar word like nerd, bigger, digger, trigger, figure, sugar, mother, etc? Consider the full sentence context. Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vSlur === 'yes') {
-          if (warnedPlayers.has(voiceSteamId)) {
-            await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
-            warnedPlayers.delete(voiceSteamId);
-          } else {
-            warnedPlayers.add(voiceSteamId);
-            sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate voice language. Next offence = prison.');
-          }
-          if (DISCORD_VOICE_WEBHOOK) {
-            await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Hate Speech Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
-          }
-        }
-        return;
-      }
-
-      // Handle AssemblyAI flagged voice content
-      if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICE FLAGGED]')) {
-        const line = msg.Message.slice(msg.Message.indexOf('[VOICE FLAGGED] ') + 16).trim();
-        const parenStart = line.indexOf('(');
-        const parenEnd = line.indexOf(')');
-        const dashIdx = line.indexOf(' — said: ');
-        const voiceUsername = line.slice(0, parenStart).trim();
-        const voiceSteamId = line.slice(parenStart + 1, parenEnd);
-        const voiceText = dashIdx !== -1 ? line.slice(dashIdx + 9).toLowerCase() : '';
-        console.log('[VOICE FLAGGED] ' + voiceUsername + ': ' + voiceText);
-        if (DISCORD_VOICE_WEBHOOK) {
-          await fetch(DISCORD_VOICE_WEBHOOK, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Hate Speech Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] })
-          }).catch(function(e) { console.error('Discord voice error:', e.message); });
-        }
-        if (containsBlockedWord(voiceText)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); return; }
-        if (warnedPlayers.has(voiceSteamId)) {
-          await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
-          warnedPlayers.delete(voiceSteamId);
-        } else {
-          warnedPlayers.add(voiceSteamId);
-          sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate language in voice chat. Next offence = prison.');
-        }
-        return;
-      }
-
-      if (msg.Type !== 'Chat') return;
-      let inner;
-      try { inner = JSON.parse(msg.Message); } catch { return; }
-      const rawText  = inner.Message || '';
-      const username = inner.Username || '';
-      const userId   = inner.UserId || '';
-      if (!rawText || userId === '0' || username === 'SERVER') return;
-
-      const text = extractPlayerMessage(rawText).toLowerCase();
-      console.log('[CHAT] ' + username + ': ' + text);
-
-      // Admin commands
-      if (text.startsWith('!teach ')) {
-        const parts = text.slice(7).trim().split(' ');
-        const cat = parts[0]; const phrase = parts.slice(1).join(' ');
-        const valid = COMMANDS.map(function(c) { return c.id; }).filter(function(c) { return c !== 'none'; });
-        if (!phrase) { sendRcon('say [Ruscar Bot]: Usage: !teach <category> <phrase>'); return; }
-        if (!valid.includes(cat)) { sendRcon('say [Ruscar Bot]: Unknown category. Valid: ' + valid.join(', ')); return; }
-        sendRcon(addExample(cat, phrase) ? 'say [Ruscar Bot]: Got it! I now know "' + phrase + '" is a ' + cat + ' question.' : 'say [Ruscar Bot]: I already know that one!');
-        return;
-      }
-      if (text.startsWith('!block ')) {
-        const word = text.slice(7).trim();
-        if (BLOCKED_WORDS.includes(word)) { sendRcon('say [Ruscar Bot]: "' + word + '" is already blocked!'); return; }
-        BLOCKED_WORDS.push(word); saveBlockedWords();
-        sendRcon('say [Ruscar Bot]: "' + word + '" added to blocklist.'); return;
-      }
-      if (text.startsWith('!unblock ')) {
-        const word = text.slice(9).trim();
-        if (HARDCODED_WORDS.includes(word)) { sendRcon('say [Ruscar Bot]: Cannot remove hardcoded words.'); return; }
-        const idx = BLOCKED_WORDS.indexOf(word);
-        if (idx === -1) { sendRcon('say [Ruscar Bot]: "' + word + '" not in blocklist.'); return; }
-        BLOCKED_WORDS.splice(idx, 1); saveBlockedWords();
-        sendRcon('say [Ruscar Bot]: "' + word + '" removed from blocklist.'); return;
-      }
-      if (text === '!blocklist') {
-        const custom = BLOCKED_WORDS.filter(function(w) { return !HARDCODED_WORDS.includes(w); });
-        sendRcon(custom.length === 0 ? 'say [Ruscar Bot]: No custom blocked words yet.' : 'say [Ruscar Bot]: Custom words: ' + custom.join(', ')); return;
-      }
-
-
-
-      if (prisoned.has(userId) || releaseCooldowns.has(userId)) return;
-
-      // Handle voice transcripts from VoiceMonitor plugin
-      if (msg.Type === 'Generic' && rawText && rawText.startsWith('voicetranscript ')) {
-        const parts = rawText.slice(16).split(' ');
-        const voiceUserId = parts[0];
-        const voiceUsername = parts[1];
-        const voiceText = parts.slice(2).join(' ').toLowerCase();
-        console.log('[VOICE TRANSCRIPT] ' + voiceUsername + ': ' + voiceText);
-
-        if (containsBlockedWord(voiceText)) {
-          await prisonPlayer(voiceUserId, voiceUsername, 'Hate Speech (Voice)');
-          return;
-        }
-        const vThreat = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain threats, telling someone to harm themselves, death wishes, or violent threats? Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vThreat === 'yes') { await prisonPlayer(voiceUserId, voiceUsername, 'Threats (Voice)'); return; }
-        const vSlur = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain racial slurs, hate speech or discriminatory language in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vSlur === 'yes') {
-          if (warnedPlayers.has(voiceUserId)) { await prisonPlayer(voiceUserId, voiceUsername, 'Hate Speech (Voice)'); warnedPlayers.delete(voiceUserId); }
-          else { warnedPlayers.add(voiceUserId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate language in voice chat. Next offence = prison.'); }
-        }
-        return;
-      }
-
-      // 1. Instant blocklist check
-      if (containsBlockedWord(text)) {
-        console.log('[BLOCKLIST] caught: ' + text);
-        await prisonPlayer(userId, username, 'Hate Speech'); return;
-      }
-
-      // 2. AI spam check
-      trackMessage(userId, text);
-      const history = messageHistory[userId] || [];
-      if (history.length >= 3) {
-        const histText = history.map(function(m, i) { return (i+1) + '. "' + m + '"'; }).join(' | ');
-        const spamPrompt = 'Spam detector for Rust game server. Recent messages: ' + histText + ' Is this spam? Spam = same message repeated, random chars, flooding. NOT spam = ggs, celebrating, normal chat. Reply yes or no only.';
-        const spamResult = await callAI(spamPrompt, 5);
-        console.log('[AI SPAM] ' + username + ': ' + spamResult);
-        if (spamResult === 'yes') { await prisonPlayer(userId, username, 'Spamming'); return; }
-      }
-
-      // 3. AI threat check
-      const threatPrompt = 'You are a multilingual content moderator for a game server. Analyze this message in ANY language. Does it contain: death wishes, telling someone to kill/harm themselves, serious violent threats, or wishing harm on someone? You must detect this in English, French, Spanish, German, Portuguese, Italian, Dutch, Russian, Arabic, Turkish, Polish, Romanian, or any other language. Subtle variations and slang count too. Casual trash talk like noob or you suck does NOT count. Answer yes or no only. Message: "' + text + '"';
-      const threatResult = await callAI(threatPrompt, 5);
-      console.log('[THREAT] ' + username + ': ' + threatResult);
-      if (threatResult === 'yes') { await prisonPlayer(userId, username, 'Threats'); return; }
-
-      // 4. AI slur check
-      const slurPrompt = 'You are a multilingual content moderator for a game server. Analyze this message in ANY language. Does it contain racial slurs, hate speech, homophobic slurs, discriminatory language, or derogatory terms targeting someone based on race, ethnicity, religion, sexuality, or nationality? You must detect this in English, French, Spanish, German, Portuguese, Italian, Dutch, Russian, Arabic, Turkish, Polish, Romanian, or any other language. Intentional misspellings and leetspeak count too. Answer yes or no only. Message: "' + text + '"';
-      const slurResult = await callAI(slurPrompt, 5);
-      console.log('[SLUR] ' + username + ': ' + slurResult);
-      if (slurResult === 'yes') {
-        if (warnedPlayers.has(userId)) { await prisonPlayer(userId, username, 'Hate Speech'); warnedPlayers.delete(userId); }
-        else { warnedPlayers.add(userId); sendRcon('say [Ruscar Bot]: WARNING ' + username + ' - inappropriate language. Next offence = prison.'); }
-        return;
-      }
-
-      // 5. Info commands
-      if (playerCooldowns.has(userId)) return;
-      playerCooldowns.add(userId);
-      setTimeout(function() { playerCooldowns.delete(userId); }, 10000);
-
-      const classifyPrompt = 'Classifier for Rust game server chat bot. Categories: "skybox" = asking about skybox/sky area, "leader" = asking who is winning/leaderboard/positions, "portal" = asking which portal/map/track, "modtool" = asking for mod tool/vehicle tool, "food" = asking for food/hungry, "none" = nothing matches.' + buildExamplesPrompt() + ' Reply with ONLY the category word. Message: "' + text + '"';
-      const category = await callAI(classifyPrompt, 10);
-      console.log('AI classified as: ' + category);
-
-      const command = COMMANDS.find(function(c) { return c.id === category; });
-      if (command && command.reply) { sendRcon(command.reply); }
-      else { playerCooldowns.delete(userId); }
-
-    } catch(e) { console.log('Error:', e.message); }
-  });
-
-  ws.on('close', function() { console.log('Disconnected, reconnecting in 5s...'); setTimeout(connect, 5000); });
-  ws.on('error', function(err) { console.error('WS Error:', err.message); });
-}
-
-if (!RCON_HOST || !RCON_PASS) { console.error('Missing RCON_HOST or RCON_PASS!'); process.exit(1); }
-console.log('Bot started...');
-connect();
