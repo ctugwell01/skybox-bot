@@ -192,7 +192,9 @@ function connect() {
 
         // Check blocklist first
         if (containsBlockedWord(voiceText)) {
+          console.log('[VOICE PRISON] Attempting to prison ' + voiceUsername + ' (' + voiceSteamId + ')');
           await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
+          console.log('[VOICE PRISON] Prison command sent for ' + voiceUsername);
           if (DISCORD_VOICE_WEBHOOK) {
             await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Slur Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
           }
