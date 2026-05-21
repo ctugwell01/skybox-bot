@@ -209,7 +209,7 @@ function connect() {
         }
 
         // AI slur check
-        const vSlur = await callAI('Multilingual moderation. Does this message contain racial slurs, hate speech, or words that sound like censored versions of slurs (like nerd, sugar, or similar replacements for slurs in gaming context)? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        const vSlur = await callAI('You are moderating a Rust game server voice chat. Speech-to-text software censors slurs by replacing them with similar sounding words. Does this transcript likely contain a racial slur, hate speech, or threat even if the slur was replaced by a similar word like nerd, bigger, digger, trigger, figure, sugar, mother, etc? Consider the full sentence context. Reply yes or no only. Message: "' + voiceText + '"', 5);
         if (vSlur === 'yes') {
           if (warnedPlayers.has(voiceSteamId)) {
             await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
