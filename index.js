@@ -178,16 +178,16 @@ function connect() {
   ws.on('message', async function(data) {
     try {
       const msg = JSON.parse(data.toString());
-      // Handle voice audio clips for Discord recordings
-      if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICEAUDIO] ')) {
-        const line = msg.Message.slice(msg.Message.indexOf('[VOICEAUDIO] ') + 13).trim();
+      // Handle voice clip file paths from VoiceMonitor
+      if (msg.Type === 'Generic' && msg.Message && msg.Message.includes('[VOICECLIP] ')) {
+        const line = msg.Message.slice(msg.Message.indexOf('[VOICECLIP] ') + 12).trim();
         const parts = line.split(' ');
-        const audioSteamId = parts[0];
-        const audioUsername = parts[1];
-        const audioB64 = parts.slice(2).join('');
-        // Store audio temporarily keyed by steamId
+        const clipSteamId = parts[0];
+        const clipUsername = parts[1];
+        const clipPath = parts.slice(2).join(' ');
         if (!global.pendingAudio) global.pendingAudio = {};
-        global.pendingAudio[audioSteamId] = { username: audioUsername, b64: audioB64, time: Date.now() };
+        global.pendingAudio[clipSteamId] = { username: clipUsername, path: clipPath, time: Date.now() };
+        console.log('[VOICE CLIP] Saved clip for ' + clipUsername + ': ' + clipPath);
         return;
       }
 
@@ -210,12 +210,22 @@ function connect() {
           if (DISCORD_RECORDINGS_WEBHOOK && global.pendingAudio && global.pendingAudio[voiceSteamId]) {
             try {
               const audioData = global.pendingAudio[voiceSteamId];
-              const audioBuffer = Buffer.from(audioData.b64, 'base64');
-              const FormData = require('form-data');
-              const form = new FormData();
-              form.append('file', audioBuffer, { filename: voiceUsername + '_voice.ogg', contentType: 'audio/ogg' });
-              form.append('payload_json', JSON.stringify({ content: '🎙️ **' + voiceUsername + '** said: `' + voiceText + '`' }));
-              await fetch(DISCORD_RECORDINGS_WEBHOOK, { method: 'POST', body: form, headers: form.getHeaders() }).catch(function(e) { console.error('Recordings webhook error:', e.message); });
+              const fs = require('fs');
+              if (audioData.path && fs.existsSync(audioData.path)) {
+                const audioBuffer = fs.readFileSync(audioData.path);
+                const boundary = '----DiscordFormBoundary' + Date.now();
+                const filename = voiceUsername + '_voice.ogg';
+                const payloadJson = JSON.stringify({ content: '🎙️ **' + voiceUsername + '** said: `' + voiceText + '`' });
+                const header = Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="payload_json"\r\nContent-Type: application/json\r\n\r\n' + payloadJson + '\r\n--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="' + filename + '"\r\nContent-Type: audio/ogg\r\n\r\n');
+                const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
+                const body = Buffer.concat([header, audioBuffer, footer]);
+                await fetch(DISCORD_RECORDINGS_WEBHOOK, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'multipart/form-data; boundary=' + boundary },
+                  body: body
+                }).catch(function(e) { console.error('Recordings webhook error:', e.message); });
+                fs.unlinkSync(audioData.path); // delete clip after upload
+              }
               delete global.pendingAudio[voiceSteamId];
             } catch(e) { console.error('Audio upload error:', e.message); }
           }
