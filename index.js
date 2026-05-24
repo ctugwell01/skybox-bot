@@ -149,6 +149,7 @@ async function prisonPlayer(userId, username, reason) {
     }
   } else {
     await sendDiscordAlert(username, userId, reason, null);
+    console.log('[PRISON RCON] prison ' + userId + ' ' + reason);
     sendRcon('prison ' + userId + ' ' + reason);
     if (reason === 'Threats') {
       sendRcon('say [Ruscar Bot]: ' + username + ' has been automatically prisoned for making threats.');
