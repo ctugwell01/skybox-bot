@@ -208,7 +208,7 @@ function connect() {
         // Check blocklist first
         console.log('[VOICE CHECK] text="' + voiceText + '" blocked=' + containsBlockedWord(voiceText) + ' prisoned=' + prisoned.has(voiceSteamId));
         if (containsBlockedWord(voiceText)) {
-          await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
+          await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
           // Send audio recording to Discord recordings channel
           if (DISCORD_RECORDINGS_WEBHOOK && global.pendingAudio && global.pendingAudio[voiceSteamId]) {
             try {
@@ -241,7 +241,7 @@ function connect() {
         // AI threat check
         const vThreat = await callAI('Multilingual moderation. Does this contain threats or telling someone to harm themselves? Reply yes or no only. Message: "' + voiceText + '"', 5);
         if (vThreat === 'yes') {
-          await prisonPlayer(voiceSteamId, voiceUsername, 'Threats (Voice)');
+          await prisonPlayer(voiceSteamId, voiceUsername, 'Threats');
           if (DISCORD_VOICE_WEBHOOK) {
             await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Threat Detected', color: 15105570, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
           }
@@ -252,7 +252,7 @@ function connect() {
         const vSlur = await callAI('You are moderating a Rust game server voice chat. Speech-to-text software censors slurs by replacing them with similar sounding words. Does this transcript likely contain a racial slur, hate speech, or threat even if the slur was replaced by a similar word like nerd, bigger, digger, trigger, figure, sugar, mother, etc? Consider the full sentence context. Reply yes or no only. Message: "' + voiceText + '"', 5);
         if (vSlur === 'yes') {
           if (warnedPlayers.has(voiceSteamId)) {
-            await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
+            await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
             warnedPlayers.delete(voiceSteamId);
           } else {
             warnedPlayers.add(voiceSteamId);
@@ -282,9 +282,9 @@ function connect() {
             body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Hate Speech Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] })
           }).catch(function(e) { console.error('Discord voice error:', e.message); });
         }
-        if (containsBlockedWord(voiceText)) { await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)'); return; }
+        if (containsBlockedWord(voiceText)) { await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech'); return; }
         if (warnedPlayers.has(voiceSteamId)) {
-          await prisonPlayer(voiceSteamId, voiceUsername, 'Hate Speech (Voice)');
+          await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
           warnedPlayers.delete(voiceSteamId);
         } else {
           warnedPlayers.add(voiceSteamId);
@@ -346,14 +346,14 @@ function connect() {
         console.log('[VOICE TRANSCRIPT] ' + voiceUsername + ': ' + voiceText);
 
         if (containsBlockedWord(voiceText)) {
-          await prisonPlayer(voiceUserId, voiceUsername, 'Hate Speech (Voice)');
+          await prisonPlayer(voiceUserId, voiceUsername, 'HateSpeech');
           return;
         }
         const vThreat = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain threats, telling someone to harm themselves, death wishes, or violent threats? Reply yes or no only. Message: "' + voiceText + '"', 5);
-        if (vThreat === 'yes') { await prisonPlayer(voiceUserId, voiceUsername, 'Threats (Voice)'); return; }
+        if (vThreat === 'yes') { await prisonPlayer(voiceUserId, voiceUsername, 'Threats'); return; }
         const vSlur = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain racial slurs, hate speech or discriminatory language in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
         if (vSlur === 'yes') {
-          if (warnedPlayers.has(voiceUserId)) { await prisonPlayer(voiceUserId, voiceUsername, 'Hate Speech (Voice)'); warnedPlayers.delete(voiceUserId); }
+          if (warnedPlayers.has(voiceUserId)) { await prisonPlayer(voiceUserId, voiceUsername, 'HateSpeech'); warnedPlayers.delete(voiceUserId); }
           else { warnedPlayers.add(voiceUserId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate language in voice chat. Next offence = prison.'); }
         }
         return;
