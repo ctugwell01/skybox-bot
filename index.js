@@ -118,7 +118,7 @@ async function sendDiscordAlert(username, userId, reason, offence) {
     await fetch(DISCORD_WEBHOOK, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [{ title: 'Player Auto Prisoned', color: reason === 'Hate Speech' ? 15158332 : 15105570, fields: [{ name: 'Player', value: username, inline: true }, { name: 'Reason', value: reason, inline: true }, { name: 'Steam Profile', value: 'https://steamcommunity.com/profiles/' + userId, inline: false }, { name: 'Offence', value: offence ? '#' + offence : 'Permanent', inline: true }], timestamp: new Date().toISOString() }] })
+      body: JSON.stringify({ embeds: [{ title: 'Player Auto Prisoned', color: reason === 'HateSpeech' ? 15158332 : 15105570, fields: [{ name: 'Player', value: username, inline: true }, { name: 'Reason', value: reason, inline: true }, { name: 'Steam Profile', value: 'https://steamcommunity.com/profiles/' + userId, inline: false }, { name: 'Offence', value: offence ? '#' + offence : 'Permanent', inline: true }], timestamp: new Date().toISOString() }] })
     });
     console.log('Discord alert sent for ' + username);
   } catch(e) { console.error('Discord error:', e.message); }
@@ -363,7 +363,7 @@ function connect() {
       // 1. Instant blocklist check
       if (containsBlockedWord(text)) {
         console.log('[BLOCKLIST] caught: ' + text);
-        await prisonPlayer(userId, username, 'Hate Speech'); return;
+        await prisonPlayer(userId, username, 'HateSpeech'); return;
       }
 
       // 2. AI spam check
@@ -388,7 +388,7 @@ function connect() {
       const slurResult = await callAI(slurPrompt, 5);
       console.log('[SLUR] ' + username + ': ' + slurResult);
       if (slurResult === 'yes') {
-        if (warnedPlayers.has(userId)) { await prisonPlayer(userId, username, 'Hate Speech'); warnedPlayers.delete(userId); }
+        if (warnedPlayers.has(userId)) { await prisonPlayer(userId, username, 'HateSpeech'); warnedPlayers.delete(userId); }
         else { warnedPlayers.add(userId); sendRcon('say [Ruscar Bot]: WARNING ' + username + ' - inappropriate language. Next offence = prison.'); }
         return;
       }
