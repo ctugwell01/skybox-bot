@@ -48,7 +48,7 @@ const messageHistory  = {};
 try { if (fs.existsSync(OFFENCES_FILE)) { const l = JSON.parse(fs.readFileSync(OFFENCES_FILE, 'utf8')); Object.assign(spamOffences, l); console.log('Loaded offences for ' + Object.keys(l).length + ' players'); } } catch(e) {}
 function saveOffences() { fs.writeFileSync(OFFENCES_FILE, JSON.stringify(spamOffences, null, 2)); }
 
-let BLOCKED_WORDS = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner'];
+let BLOCKED_WORDS = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner','kys','kill yourself','kill ur self','hang yourself','rope yourself','neck yourself'];
 try { if (fs.existsSync(BLOCKED_FILE)) { const extra = JSON.parse(fs.readFileSync(BLOCKED_FILE, 'utf8')); BLOCKED_WORDS = [...new Set([...BLOCKED_WORDS, ...extra])]; console.log('Loaded ' + extra.length + ' extra blocked words'); } } catch(e) {}
 const HARDCODED_WORDS = [...BLOCKED_WORDS];
 function saveBlockedWords() { const custom = BLOCKED_WORDS.filter(function(w) { return !HARDCODED_WORDS.includes(w); }); fs.writeFileSync(BLOCKED_FILE, JSON.stringify(custom, null, 2)); }
