@@ -155,6 +155,8 @@ async function prisonPlayer(userId, username, reason) {
     } else {
       sendRcon('say [Ruscar Bot]: ' + username + ' has been automatically prisoned for using hate speech.');
     }
+    // Remove from prisoned set after 30s so re-detection works if admin unjails them
+    setTimeout(function() { prisoned.delete(userId); }, 30000);
   }
 }
 
