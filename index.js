@@ -87,6 +87,19 @@ function trackMessage(userId, text) {
   if (!messageHistory[userId]) messageHistory[userId] = [];
   messageHistory[userId].push(text);
   if (messageHistory[userId].length > 8) messageHistory[userId].shift();
+
+  // Check if recent single-character messages spell out a slur
+  const recentMsgs = messageHistory[userId] || [];
+  const singleChars = recentMsgs.filter(function(m) { return m.trim().length <= 2; });
+  if (singleChars.length >= 3) {
+    const joined = singleChars.join('').replace(/\s/g, '').toLowerCase();
+    if (containsBlockedWord(joined)) {
+      console.log('[LETTER BYPASS] ' + username + ' spelled out slur: ' + joined);
+      messageHistory[userId] = [];
+      await prisonPlayer(userId, username, 'HateSpeech');
+      return;
+    }
+  }
 }
 
 function sendRcon(command) {
