@@ -97,6 +97,14 @@ function trackMessage(userId, text) {
       messageHistory[userId] = [];
       return 'LETTER_SLUR';
     }
+    // Also check last 3, 4, 5, 6, 7 chars as sliding window
+    for (let len = 3; len <= 8; len++) {
+      const slice = singleChars.slice(-len).join('').replace(/\s/g, '').toLowerCase();
+      if (containsBlockedWord(slice)) {
+        messageHistory[userId] = [];
+        return 'LETTER_SLUR';
+      }
+    }
   }
   const allJoined = recentMsgs.join('').replace(/\s/g, '').toLowerCase();
   if (containsBlockedWord(allJoined)) {
