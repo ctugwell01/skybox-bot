@@ -88,18 +88,22 @@ function trackMessage(userId, text) {
   messageHistory[userId].push(text);
   if (messageHistory[userId].length > 8) messageHistory[userId].shift();
 
-  // Check if recent single-character messages spell out a slur
+  // Check if recent messages spell out a slur letter by letter
   const recentMsgs = messageHistory[userId] || [];
   const singleChars = recentMsgs.filter(function(m) { return m.trim().length <= 2; });
-  if (singleChars.length >= 3) {
+  if (singleChars.length >= 2) {
     const joined = singleChars.join('').replace(/\s/g, '').toLowerCase();
     if (containsBlockedWord(joined)) {
-      console.log('[LETTER BYPASS] ' + username + ' spelled out slur: ' + joined);
       messageHistory[userId] = [];
-      prisonPlayer(userId, username, 'HateSpeech');
-      return;
+      return 'LETTER_SLUR';
     }
   }
+  const allJoined = recentMsgs.join('').replace(/\s/g, '').toLowerCase();
+  if (containsBlockedWord(allJoined)) {
+    messageHistory[userId] = [];
+    return 'LETTER_SLUR';
+  }
+  return null;
 }
 
 function sendRcon(command) {
@@ -380,7 +384,12 @@ function connect() {
       }
 
       // 2. AI spam check
-      trackMessage(userId, text);
+      const letterSlur = trackMessage(userId, text);
+      if (letterSlur === 'LETTER_SLUR') {
+        console.log('[LETTER BYPASS] ' + username + ' spelled out a slur');
+        await prisonPlayer(userId, username, 'HateSpeech');
+        return;
+      }
       const history = messageHistory[userId] || [];
       if (history.length >= 3) {
         const histText = history.map(function(m, i) { return (i+1) + '. "' + m + '"'; }).join(' | ');
