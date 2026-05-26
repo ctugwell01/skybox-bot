@@ -96,7 +96,7 @@ function trackMessage(userId, text) {
     if (containsBlockedWord(joined)) {
       console.log('[LETTER BYPASS] ' + username + ' spelled out slur: ' + joined);
       messageHistory[userId] = [];
-      await prisonPlayer(userId, username, 'HateSpeech');
+      prisonPlayer(userId, username, 'HateSpeech');
       return;
     }
   }
