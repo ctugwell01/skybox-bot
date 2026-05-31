@@ -130,6 +130,7 @@ async function callAI(prompt, maxTokens) {
     });
     clearTimeout(t);
     const data = await res.json();
+    if (!data.content || !data.content[0] || !data.content[0].text) return 'none';
     return data.content[0].text.trim().toLowerCase();
   } catch(e) {
     console.error('AI error:', e.message);
@@ -265,7 +266,7 @@ function connect() {
         }
 
         // AI threat check
-        const vThreat = await callAI('Multilingual moderation. Does this contain threats or telling someone to harm themselves? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        const vThreat = await callAI("Rust game server voice chat moderation. Does this contain a REAL serious threat like telling someone to kill themselves or explicit violent threats toward a real person? Gaming callouts like run you over, shoot you, kill you in game are NOT threats. Answer yes or no only. Message: \"" + voiceText + "\"", 5);
         if (vThreat === 'yes') {
           await prisonPlayer(voiceSteamId, voiceUsername, 'Threats');
           if (DISCORD_VOICE_WEBHOOK) {
@@ -375,7 +376,7 @@ function connect() {
           await prisonPlayer(voiceUserId, voiceUsername, 'HateSpeech');
           return;
         }
-        const vThreat = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain threats, telling someone to harm themselves, death wishes, or violent threats? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        const vThreat = await callAI("Rust game server voice chat moderation. Does this contain a REAL serious threat like telling someone to kill themselves or explicit violent threats toward a real person outside of gameplay? Gaming callouts are NOT threats. Answer yes or no only. Message: \"" + voiceText + "\"", 5);
         if (vThreat === 'yes') { await prisonPlayer(voiceUserId, voiceUsername, 'Threats'); return; }
         const vSlur = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain racial slurs, hate speech or discriminatory language in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
         if (vSlur === 'yes') {
@@ -416,7 +417,7 @@ function connect() {
       }
 
       // 3. AI threat check
-      const threatPrompt = 'You are a multilingual content moderator for a game server. Analyze this message in ANY language. Does it contain: death wishes, telling someone to kill/harm themselves, serious violent threats, or wishing harm on someone? You must detect this in English, French, Spanish, German, Portuguese, Italian, Dutch, Russian, Arabic, Turkish, Polish, Romanian, or any other language. Subtle variations and slang count too. Casual trash talk like noob or you suck does NOT count. Answer yes or no only. Message: "' + text + '"';
+      const threatPrompt = "You are a multilingual content moderator for a Rust game server. Does this message contain a REAL serious threat — like telling someone to kill themselves, wishing death, or explicit violent threats toward a real person? Gaming context like I will kill you in game, run you over, shoot you, raid you are NOT threats. Casual trash talk is NOT a threat. Only flag genuinely alarming messages directed at a real person outside of gameplay. Answer yes or no only. Message: \"" + text + "\"";
       const threatResult = await callAI(threatPrompt, 5);
       console.log('[THREAT] ' + username + ': ' + threatResult);
       if (threatResult === 'yes') { await prisonPlayer(userId, username, 'Threats'); return; }
