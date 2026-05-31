@@ -399,6 +399,13 @@ function connect() {
         return;
       }
       const history = messageHistory[userId] || [];
+      // Check for single letter spam separately
+      const recentAll = history.slice(-6);
+      const singleLetterCount = recentAll.filter(function(m) { return m.trim().length <= 2; }).length;
+      if (singleLetterCount >= 5) {
+        console.log('[SPAM] ' + username + ': single letter spam');
+        await prisonPlayer(userId, username, 'Spamming'); return;
+      }
       const meaningfulHistory = history.filter(function(m) { return m.length > 3; });
       if (meaningfulHistory.length >= 4) {
         const histText = meaningfulHistory.map(function(m, i) { return (i+1) + '. "' + m + '"'; }).join(' | ');
