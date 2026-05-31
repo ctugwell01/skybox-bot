@@ -399,9 +399,10 @@ function connect() {
         return;
       }
       const history = messageHistory[userId] || [];
-      if (history.length >= 3) {
-        const histText = history.map(function(m, i) { return (i+1) + '. "' + m + '"'; }).join(' | ');
-        const spamPrompt = 'Spam detector for Rust game server. Recent messages: ' + histText + ' Is this spam? Spam = same message repeated, random chars, flooding. NOT spam = ggs, celebrating, normal chat. Reply yes or no only.';
+      const meaningfulHistory = history.filter(function(m) { return m.length > 3; });
+      if (meaningfulHistory.length >= 4) {
+        const histText = meaningfulHistory.map(function(m, i) { return (i+1) + '. "' + m + '"'; }).join(' | ');
+        const spamPrompt = 'Spam detector for Rust game server. Recent messages: ' + histText + ' Is this spam? Spam means: same message copy pasted 3+ times in a row, keyboard mashing like 'asdasd' or 'aaaaaaa', flooding with many rapid short messages. NOT spam: normal conversation, celebrating wins, short replies like 'gg' 'lol' 'ok' 'yes' 'no', different messages even if short, gaming callouts. Reply yes or no only.';
         const spamResult = await callAI(spamPrompt, 5);
         console.log('[AI SPAM] ' + username + ': ' + spamResult);
         if (spamResult === 'yes') { await prisonPlayer(userId, username, 'Spamming'); return; }
