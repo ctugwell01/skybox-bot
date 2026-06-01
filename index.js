@@ -17,6 +17,22 @@ let savedExamples = {};
 try { if (fs.existsSync(EXAMPLES_FILE)) { savedExamples = JSON.parse(fs.readFileSync(EXAMPLES_FILE, 'utf8')); console.log('Loaded ' + Object.keys(savedExamples).length + ' example categories'); } } catch(e) {}
 
 function saveExamples() { fs.writeFileSync(EXAMPLES_FILE, JSON.stringify(savedExamples, null, 2)); }
+
+// Voice learning examples
+const VOICE_EXAMPLES_FILE = '/tmp/voice_examples.json';
+let voiceExamples = { slur: [], clean: [] };
+try { if (fs.existsSync(VOICE_EXAMPLES_FILE)) { voiceExamples = JSON.parse(fs.readFileSync(VOICE_EXAMPLES_FILE, 'utf8')); console.log('Loaded ' + voiceExamples.slur.length + ' voice slur examples, ' + voiceExamples.clean.length + ' clean examples'); } } catch(e) {}
+function saveVoiceExamples() { fs.writeFileSync(VOICE_EXAMPLES_FILE, JSON.stringify(voiceExamples, null, 2)); }
+function addVoiceExample(text, isSlur) {
+  const list = isSlur ? voiceExamples.slur : voiceExamples.clean;
+  if (!list.includes(text)) { list.push(text); if (list.length > 20) list.shift(); saveVoiceExamples(); }
+}
+function getVoiceExamplePrompt() {
+  let ex = '';
+  if (voiceExamples.slur.length > 0) ex += ' Examples that ARE slurs/hate speech: ' + voiceExamples.slur.slice(-5).map(function(e) { return '"' + e + '"'; }).join(', ') + '.';
+  if (voiceExamples.clean.length > 0) ex += ' Examples that are NOT slurs: ' + voiceExamples.clean.slice(-5).map(function(e) { return '"' + e + '"'; }).join(', ') + '.';
+  return ex;
+}
 function addExample(category, phrase) {
   if (!savedExamples[category]) savedExamples[category] = [];
   if (!savedExamples[category].includes(phrase)) { savedExamples[category].push(phrase); saveExamples(); return true; }
@@ -276,7 +292,8 @@ function connect() {
         }
 
         // AI slur check
-        const vSlur = await callAI('You are moderating a Rust game server voice chat. Speech-to-text software censors slurs by replacing them with similar sounding words. Does this transcript likely contain a racial slur, hate speech, or threat even if the slur was replaced by a similar word like nerd, bigger, digger, trigger, figure, sugar, mother, etc? Consider the full sentence context. Reply yes or no only. Message: "' + voiceText + '"', 5);
+        const vSlur = await callAI('You are moderating a Rust game server voice chat. Speech-to-text software censors slurs by replacing them with similar sounding words. Does this transcript likely contain a racial slur, hate speech, or threat even if the slur was replaced by a similar word like nerd, bigger, digger, trigger, figure, sugar, mother, etc? Consider the full sentence context.' + getVoiceExamplePrompt() + ' Reply yes or no only. Message: "' + voiceText + '"', 5);
+        addVoiceExample(voiceText, vSlur === 'yes');
         if (vSlur === 'yes') {
           await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
           if (DISCORD_VOICE_WEBHOOK) {
@@ -326,6 +343,13 @@ function connect() {
       console.log('[CHAT] ' + username + ': ' + text);
 
       // Admin commands
+      if (text.startsWith('!voiceteach ')) {
+        const parts = text.slice(12).trim().split(' ');
+        const result = parts[0]; const phrase = parts.slice(1).join(' ');
+        if (!phrase || (result !== 'slur' && result !== 'clean')) { sendRcon('say [Ruscar Bot]: Usage: !voiceteach slur/clean <phrase>'); return; }
+        addVoiceExample(phrase, result === 'slur');
+        sendRcon('say [Ruscar Bot]: Voice example saved — "' + phrase + '" marked as ' + result + '.'); return;
+      }
       if (text.startsWith('!teach ')) {
         const parts = text.slice(7).trim().split(' ');
         const cat = parts[0]; const phrase = parts.slice(1).join(' ');
@@ -372,7 +396,8 @@ function connect() {
         }
         const vThreat = await callAI("Rust game server voice chat moderation. Does this contain a REAL serious threat like telling someone to kill themselves or explicit violent threats toward a real person outside of gameplay? Gaming callouts are NOT threats. Answer yes or no only. Message: \"" + voiceText + "\"", 5);
         if (vThreat === 'yes') { await prisonPlayer(voiceUserId, voiceUsername, 'Threats'); return; }
-        const vSlur = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain racial slurs, hate speech or discriminatory language in any language? Reply yes or no only. Message: "' + voiceText + '"', 5);
+        const vSlur = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain racial slurs, hate speech or discriminatory language in any language?' + getVoiceExamplePrompt() + ' Reply yes or no only. Message: "' + voiceText + '"', 5);
+        addVoiceExample(voiceText, vSlur === 'yes');
         if (vSlur === 'yes') {
           if (warnedPlayers.has(voiceUserId)) { await prisonPlayer(voiceUserId, voiceUsername, 'HateSpeech'); warnedPlayers.delete(voiceUserId); }
           else { warnedPlayers.add(voiceUserId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate language in voice chat. Next offence = prison.'); }
