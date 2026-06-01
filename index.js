@@ -278,13 +278,7 @@ function connect() {
         // AI slur check
         const vSlur = await callAI('You are moderating a Rust game server voice chat. Speech-to-text software censors slurs by replacing them with similar sounding words. Does this transcript likely contain a racial slur, hate speech, or threat even if the slur was replaced by a similar word like nerd, bigger, digger, trigger, figure, sugar, mother, etc? Consider the full sentence context. Reply yes or no only. Message: "' + voiceText + '"', 5);
         if (vSlur === 'yes') {
-          if (warnedPlayers.has(voiceSteamId)) {
-            await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
-            warnedPlayers.delete(voiceSteamId);
-          } else {
-            warnedPlayers.add(voiceSteamId);
-            sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate voice language. Next offence = prison.');
-          }
+          await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
           if (DISCORD_VOICE_WEBHOOK) {
             await fetch(DISCORD_VOICE_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [{ title: '🎙️ Voice Hate Speech Detected', color: 15158332, fields: [{ name: 'Player', value: voiceUsername, inline: true }, { name: 'Steam', value: 'https://steamcommunity.com/profiles/' + voiceSteamId, inline: true }, { name: 'Said', value: voiceText, inline: false }], timestamp: new Date().toISOString() }] }) }).catch(function(e) {});
           }
