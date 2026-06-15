@@ -467,7 +467,45 @@ function connect() {
     } catch(e) { console.log('Error:', e.message); }
   });
 
-  ws.on('close', function() { console.log('Disconnected, reconnecting in 5s...'); setTimeout(connect, 5000); });
+  let offlineAlertSent = false;
+  let offlineTimer = null;
+
+  ws.on('close', function() {
+    console.log('Disconnected, reconnecting in 5s...');
+    // Start offline timer - alert after 2 minutes offline
+    if (!offlineTimer) {
+      offlineTimer = setTimeout(async function() {
+        if (!offlineAlertSent && DISCORD_WEBHOOK) {
+          offlineAlertSent = true;
+          console.log('[OFFLINE ALERT] Bot has been offline for 2 minutes — sending Discord alert');
+          try {
+            await fetch(DISCORD_WEBHOOK, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ embeds: [{ title: '⚠️ Ruscar Bot OFFLINE', color: 15158332, description: 'The moderation bot has been disconnected for over 2 minutes. Chat is **unmonitored**.', timestamp: new Date().toISOString() }] })
+            });
+          } catch(e) { console.log('Failed to send offline alert:', e.message); }
+        }
+      }, 120000); // 2 minutes
+    }
+    setTimeout(connect, 5000);
+  });
+
+  ws.on('open', function() {
+    // Clear offline timer and send online alert if we were offline
+    if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null; }
+    if (offlineAlertSent) {
+      offlineAlertSent = false;
+      if (DISCORD_WEBHOOK) {
+        fetch(DISCORD_WEBHOOK, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeds: [{ title: '✅ Ruscar Bot ONLINE', color: 3066993, description: 'The moderation bot has reconnected. Chat is now monitored.', timestamp: new Date().toISOString() }] })
+        }).catch(function() {});
+      }
+    }
+  });
+
   ws.on('error', function(err) { console.error('WS Error:', err.message); });
 }
 
