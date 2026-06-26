@@ -18,6 +18,12 @@ try { if (fs.existsSync(EXAMPLES_FILE)) { savedExamples = JSON.parse(fs.readFile
 
 function saveExamples() { fs.writeFileSync(EXAMPLES_FILE, JSON.stringify(savedExamples, null, 2)); }
 
+// Pre-teach the AI that vulgar words in other languages are not racial slurs
+if (!savedExamples['notSlur']) savedExamples['notSlur'] = [];
+['yarrak', 'yarak', 'porra', 'caralho', 'merde', 'scheisse', 'putain', 'cazzo', 'vaffanculo'].forEach(function(w) {
+  if (!savedExamples['notSlur'].includes(w)) savedExamples['notSlur'].push(w);
+});
+
 // Voice learning examples
 const VOICE_EXAMPLES_FILE = '/tmp/voice_examples.json';
 let voiceExamples = { slur: [], clean: [] };
@@ -442,7 +448,10 @@ function connect() {
       if (threatResult === 'yes') { await prisonPlayer(userId, username, 'Threats'); return; }
 
       // 4. AI slur check
-      const slurPrompt = 'You are a multilingual content moderator for a game server. Analyze this message in ANY language. Does it contain racial slurs, hate speech, homophobic slurs, discriminatory language, or derogatory terms targeting someone based on race, ethnicity, religion, sexuality, or nationality? You must detect this in English, French, Spanish, German, Portuguese, Italian, Dutch, Russian, Arabic, Turkish, Polish, Romanian, or any other language. Intentional misspellings and leetspeak count too. Answer yes or no only. Message: "' + text + '"';
+      const notSlurExamples = (savedExamples['notSlur'] || []).slice(-10).join(', ');
+      const slurExamples = (savedExamples['slur'] || []).slice(-10).join(', ');
+      const slurContext = (notSlurExamples ? ' These are NOT slurs — they are just vulgar words or gaming terms: ' + notSlurExamples + '.' : '') + (slurExamples ? ' These ARE slurs: ' + slurExamples + '.' : '');
+      const slurPrompt = 'You are a multilingual content moderator for a game server. Does this message contain racial slurs, hate speech, homophobic slurs, or derogatory terms targeting someone based on race, ethnicity, religion, sexuality, or nationality? Generic swear words like fuck, shit, dick, cock in any language do NOT count.' + slurContext + ' Answer yes or no only. Message: "' + text + '"';
       const slurResult = await callAI(slurPrompt, 5);
       console.log('[SLUR] ' + username + ': ' + slurResult);
       if (slurResult === 'yes') {
