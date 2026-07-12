@@ -63,6 +63,7 @@ const COMMANDS = [
 const spamOffences    = {};
 const prisoned        = new Set();
 const playerCooldowns = new Set();
+const serverReplyCooldowns = {}; // server-wide cooldown per category
 const releaseCooldowns = new Set();
 const warnedPlayers   = new Set();
 const messageHistory  = {};
@@ -470,7 +471,14 @@ function connect() {
       console.log('AI classified as: ' + category);
 
       const command = COMMANDS.find(function(c) { return c.id === category; });
-      if (command && command.reply) { sendRcon(command.reply); }
+      if (command && command.reply) {
+        const now = Date.now();
+        const lastReply = serverReplyCooldowns[category] || 0;
+        if (now - lastReply >= 60000) {
+          serverReplyCooldowns[category] = now;
+          sendRcon(command.reply);
+        }
+      }
       else { playerCooldowns.delete(userId); }
 
     } catch(e) { console.log('Error:', e.message); }
