@@ -71,7 +71,7 @@ const messageHistory  = {};
 try { if (fs.existsSync(OFFENCES_FILE)) { const l = JSON.parse(fs.readFileSync(OFFENCES_FILE, 'utf8')); Object.assign(spamOffences, l); console.log('Loaded offences for ' + Object.keys(l).length + ' players'); } } catch(e) {}
 function saveOffences() { fs.writeFileSync(OFFENCES_FILE, JSON.stringify(spamOffences, null, 2)); }
 
-let BLOCKED_WORDS = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','tranny','chink','kike','gook','wetback','beaner','kys','kill yourself','kill ur self','hang yourself','rope yourself','neck yourself','i hate the jew','hate the jews','i hate jews','fucking jews','dirty jew','stupid jew','kill the jews','gas the jews','jew boy','i hate the j','negro','negra','neger','negão','negona','preto sujo','macaco','macaca','porra','caralho porra'];
+let BLOCKED_WORDS = ['retard','retarded','spastic','spaz','nigger','nigga','faggot','fag','faga','fagot','tranny','chink','kike','gook','wetback','beaner','kys','kill yourself','kill ur self','hang yourself','rope yourself','neck yourself','i hate the jew','hate the jews','i hate jews','fucking jews','dirty jew','stupid jew','kill the jews','gas the jews','jew boy','i hate the j','negro','negra','neger','negão','negona','preto sujo','macaco','macaca','porra','caralho porra'];
 try { if (fs.existsSync(BLOCKED_FILE)) { const extra = JSON.parse(fs.readFileSync(BLOCKED_FILE, 'utf8')); BLOCKED_WORDS = [...new Set([...BLOCKED_WORDS, ...extra])]; console.log('Loaded ' + extra.length + ' extra blocked words'); } } catch(e) {}
 const HARDCODED_WORDS = [...BLOCKED_WORDS];
 function saveBlockedWords() { const custom = BLOCKED_WORDS.filter(function(w) { return !HARDCODED_WORDS.includes(w); }); fs.writeFileSync(BLOCKED_FILE, JSON.stringify(custom, null, 2)); }
@@ -356,6 +356,17 @@ function connect() {
         if (!phrase || (result !== 'slur' && result !== 'clean')) { sendRcon('say [Ruscar Bot]: Usage: !voiceteach slur/clean <phrase>'); return; }
         addVoiceExample(phrase, result === 'slur');
         sendRcon('say [Ruscar Bot]: Voice example saved — "' + phrase + '" marked as ' + result + '.'); return;
+      }
+      if (text.startsWith('!history ')) {
+        const ADMIN_IDS = ['76561199205214362', '76561198337669548'];
+        if (!ADMIN_IDS.includes(userId)) return;
+        const target = text.slice(9).trim();
+        const spamCount = spamOffences[target] || 0;
+        const inPrison = prisoned.has(target);
+        const msg = '[History] ' + target + ' — Spam offences: ' + spamCount + (inPrison ? ' — Currently PRISONED' : '');
+        sendRcon('sayplayer ' + userId + ' ' + msg);
+        console.log('[HISTORY] ' + msg);
+        return;
       }
       if (text.startsWith('!teach ')) {
         const parts = text.slice(7).trim().split(' ');
