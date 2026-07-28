@@ -477,7 +477,7 @@ function connect() {
       playerCooldowns.add(userId);
       setTimeout(function() { playerCooldowns.delete(userId); }, 10000);
 
-      const classifyPrompt = 'Classifier for Rust game server chat bot. Categories: "skybox" = asking about skybox/sky area, "leader" = asking who is winning/leaderboard/positions, "portal" = asking which portal/map/track, "modtool" = asking for mod tool/vehicle tool, "food" = asking for food/hungry, "none" = nothing matches.' + buildExamplesPrompt() + ' Reply with ONLY the category word. Message: "' + text + '"';
+      const classifyPrompt = 'Classifier for Rust game server chat bot. Only match a category if the player is DIRECTLY ASKING a question about that topic. Categories: "skybox" = explicitly asking how to get to the skybox or sky area (must contain skybox or sky), "leader" = explicitly asking who is winning or in first place, "portal" = explicitly asking which portal or map or track to use, "modtool" = explicitly asking for a mod tool or vehicle tool, "food" = explicitly asking for food, "none" = anything else including statements, conversation, or unclear messages.' + buildExamplesPrompt() + ' Reply with ONLY the category word. Message: "' + text + '"';
       const category = await callAI(classifyPrompt, 10);
       console.log('AI classified as: ' + category);
 
