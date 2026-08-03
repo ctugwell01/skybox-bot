@@ -217,6 +217,9 @@ process.on('SIGINT', function() {
   try { sendRcon('say [Ruscar Bot]: Updating code, back in a moment!'); setTimeout(function() { process.exit(0); }, 1500); } catch(e) { process.exit(0); }
 });
 
+let offlineAlertSent = false;
+let offlineTimer = null;
+
 function connect() {
   const url = 'ws://' + RCON_HOST + ':' + RCON_PORT + '/' + RCON_PASS;
   console.log('Connecting...');
@@ -494,9 +497,6 @@ function connect() {
 
     } catch(e) { console.log('Error:', e.message); }
   });
-
-  let offlineAlertSent = false;
-  let offlineTimer = null;
 
   ws.on('close', function() {
     console.log('Disconnected, reconnecting in 5s...');
