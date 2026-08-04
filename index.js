@@ -61,6 +61,7 @@ const COMMANDS = [
 ];
 
 const spamOffences    = {};
+const prisonHistory   = {}; // tracks all prisons per player
 const prisoned        = new Set();
 const playerCooldowns = new Set();
 const serverReplyCooldowns = {}; // server-wide cooldown per category
@@ -177,6 +178,9 @@ async function prisonPlayer(userId, username, reason) {
   if (prisoned.has(userId)) return;
   prisoned.add(userId);
   delete messageHistory[userId];
+  // Track prison history
+  if (!prisonHistory[userId]) prisonHistory[userId] = [];
+  prisonHistory[userId].push({ reason: reason, time: new Date().toISOString(), username: username });
   if (reason === 'Spamming') {
     const minutes = getSpamMinutes(userId);
     spamOffences[userId] = (spamOffences[userId] || 0) + 1;
@@ -366,7 +370,17 @@ function connect() {
         const target = text.slice(9).trim();
         const spamCount = spamOffences[target] || 0;
         const inPrison = prisoned.has(target);
-        const msg = 'History for ' + target + ' — Spam offences: ' + spamCount + (inPrison ? ' | Currently PRISONED' : ' | Not in prison');
+        const history = prisonHistory[target] || [];
+        const hateSpeech = history.filter(function(h) { return h.reason === 'HateSpeech'; }).length;
+        const threats = history.filter(function(h) { return h.reason === 'Threats'; }).length;
+        const lastPrison = history.length > 0 ? history[history.length-1] : null;
+        const msg = 'History for ' + target + '\n' +
+          'Spam offences: ' + spamCount + '\n' +
+          'Hate speech prisons: ' + hateSpeech + '\n' +
+          'Threat prisons: ' + threats + '\n' +
+          'Total prisons: ' + history.length + '\n' +
+          (lastPrison ? 'Last prison: ' + lastPrison.reason + ' at ' + lastPrison.time : 'No prison history') + '\n' +
+          (inPrison ? '⚠️ Currently PRISONED' : '✅ Not in prison');
         console.log('[HISTORY] ' + msg);
         // Send privately via Discord
         if (DISCORD_WEBHOOK) {
