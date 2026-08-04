@@ -11,7 +11,53 @@ const DISCORD_RECORDINGS_WEBHOOK = process.env.DISCORD_RECORDINGS_WEBHOOK;
 
 const EXAMPLES_FILE = '/tmp/bot_examples.json';
 const BLOCKED_FILE  = '/tmp/blocked_words.json';
-const OFFENCES_FILE = '/tmp/spam_offences.json';
+const OFFENCES_FILE  = '/tmp/spam_offences.json';
+const HISTORY_FILE   = '/tmp/prison_history.json';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GITHUB_REPO  = process.env.GITHUB_REPO || 'ctugwell01/skybox-bot';
+const GITHUB_PATH  = 'prison_history.json';
+
+async function loadHistoryFromGitHub() {
+  if (!GITHUB_TOKEN) { console.log('[GITHUB] No token set'); return; }
+  console.log('[GITHUB] Loading from ' + GITHUB_REPO + '/' + GITHUB_PATH);
+  try {
+    const res = await fetch('https://api.github.com/repos/' + GITHUB_REPO + '/contents/' + GITHUB_PATH, {
+      headers: { 'Authorization': 'token ' + GITHUB_TOKEN, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    console.log('[GITHUB] Load response: ' + res.status);
+    if (res.ok) {
+      const data = await res.json();
+      const decoded = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+      Object.assign(prisonHistory, decoded);
+      console.log('[GITHUB] Loaded prison history for ' + Object.keys(decoded).length + ' players');
+    } else {
+      const err = await res.text();
+      console.log('[GITHUB] Load error: ' + err);
+    }
+  } catch(e) { console.log('[GITHUB] Failed to load history:', e.message); }
+}
+
+async function saveHistoryToGitHub() {
+  if (!GITHUB_TOKEN) { console.log('[GITHUB] No token set'); return; }
+  console.log('[GITHUB] Saving to ' + GITHUB_REPO + '/' + GITHUB_PATH);
+  try {
+    const getRes = await fetch('https://api.github.com/repos/' + GITHUB_REPO + '/contents/' + GITHUB_PATH, {
+      headers: { 'Authorization': 'token ' + GITHUB_TOKEN, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    console.log('[GITHUB] Get SHA response: ' + getRes.status);
+    const sha = getRes.ok ? (await getRes.json()).sha : undefined;
+    const body = { message: 'Update prison history', content: Buffer.from(JSON.stringify(prisonHistory, null, 2)).toString('base64') };
+    if (sha) body.sha = sha;
+    const putRes = await fetch('https://api.github.com/repos/' + GITHUB_REPO + '/contents/' + GITHUB_PATH, {
+      method: 'PUT',
+      headers: { 'Authorization': 'token ' + GITHUB_TOKEN, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    console.log('[GITHUB] Save response: ' + putRes.status);
+    if (!putRes.ok) { const err = await putRes.text(); console.log('[GITHUB] Save error: ' + err); }
+    else console.log('[GITHUB] Prison history saved');
+  } catch(e) { console.log('[GITHUB] Failed to save history:', e.message); }
+}
 
 let savedExamples = {};
 try { if (fs.existsSync(EXAMPLES_FILE)) { savedExamples = JSON.parse(fs.readFileSync(EXAMPLES_FILE, 'utf8')); console.log('Loaded ' + Object.keys(savedExamples).length + ' example categories'); } } catch(e) {}
@@ -62,6 +108,8 @@ const COMMANDS = [
 
 const spamOffences    = {};
 const prisonHistory   = {}; // tracks all prisons per player
+try { if (fs.existsSync(HISTORY_FILE)) { const h = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')); Object.assign(prisonHistory, h); console.log('Loaded prison history for ' + Object.keys(h).length + ' players'); } } catch(e) {}
+function savePrisonHistory() { fs.writeFileSync(HISTORY_FILE, JSON.stringify(prisonHistory, null, 2)); saveHistoryToGitHub(); }
 const prisoned        = new Set();
 const playerCooldowns = new Set();
 const serverReplyCooldowns = {}; // server-wide cooldown per category
@@ -181,6 +229,7 @@ async function prisonPlayer(userId, username, reason) {
   // Track prison history
   if (!prisonHistory[userId]) prisonHistory[userId] = [];
   prisonHistory[userId].push({ reason: reason, time: new Date().toISOString(), username: username });
+  savePrisonHistory();
   if (reason === 'Spamming') {
     const minutes = getSpamMinutes(userId);
     spamOffences[userId] = (spamOffences[userId] || 0) + 1;
@@ -562,4 +611,5 @@ function connect() {
 
 if (!RCON_HOST || !RCON_PASS) { console.error('Missing RCON_HOST or RCON_PASS!'); process.exit(1); }
 console.log('Bot started...');
+loadHistoryFromGitHub();
 connect();
