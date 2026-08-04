@@ -366,9 +366,18 @@ function connect() {
         const target = text.slice(9).trim();
         const spamCount = spamOffences[target] || 0;
         const inPrison = prisoned.has(target);
-        const msg = '[History] ' + target + ' — Spam offences: ' + spamCount + (inPrison ? ' — Currently PRISONED' : '');
-        sendRcon('sayplayer ' + userId + ' ' + msg);
+        const msg = 'History for ' + target + ' — Spam offences: ' + spamCount + (inPrison ? ' | Currently PRISONED' : ' | Not in prison');
         console.log('[HISTORY] ' + msg);
+        // Send privately via Discord
+        if (DISCORD_WEBHOOK) {
+          try {
+            await fetch(DISCORD_WEBHOOK, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ embeds: [{ title: '📋 Player History', color: 3447003, description: msg, footer: { text: 'Requested by ' + username } }] })
+            });
+          } catch(e) { console.log('History webhook error:', e.message); }
+        }
         return;
       }
       if (text.startsWith('!teach ')) {
