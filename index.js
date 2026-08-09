@@ -8,6 +8,8 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 const DISCORD_VOICE_WEBHOOK = process.env.DISCORD_VOICE_WEBHOOK;
 const DISCORD_RECORDINGS_WEBHOOK = process.env.DISCORD_RECORDINGS_WEBHOOK;
+const DISCORD_PRISON_LOG_WEBHOOK = process.env.DISCORD_PRISON_LOG_WEBHOOK;
+const DISCORD_HISTORY_WEBHOOK = process.env.DISCORD_HISTORY_WEBHOOK;
 
 const EXAMPLES_FILE = '/tmp/bot_examples.json';
 const BLOCKED_FILE  = '/tmp/blocked_words.json';
@@ -211,9 +213,10 @@ async function callAI(prompt, maxTokens) {
 }
 
 async function sendDiscordAlert(username, userId, reason, offence) {
-  if (!DISCORD_WEBHOOK) return;
+  const alertWebhook = DISCORD_PRISON_LOG_WEBHOOK || DISCORD_WEBHOOK;
+  if (!alertWebhook) return;
   try {
-    await fetch(DISCORD_WEBHOOK, {
+    await fetch(alertWebhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ embeds: [{ title: 'Player Auto Prisoned', color: reason === 'HateSpeech' ? 15158332 : 15105570, fields: [{ name: 'Player', value: username, inline: true }, { name: 'Reason', value: reason, inline: true }, { name: 'Steam Profile', value: 'https://steamcommunity.com/profiles/' + userId, inline: false }, { name: 'Offence', value: offence ? '#' + offence : 'Permanent', inline: true }], timestamp: new Date().toISOString() }] })
@@ -433,9 +436,10 @@ function connect() {
           (inPrison ? '⚠️ Currently PRISONED' : '✅ Not in prison');
         console.log('[HISTORY] ' + msg);
         // Send privately via Discord
-        if (DISCORD_WEBHOOK) {
+        const histWebhook = DISCORD_HISTORY_WEBHOOK || DISCORD_WEBHOOK;
+        if (histWebhook) {
           try {
-            await fetch(DISCORD_WEBHOOK, {
+            await fetch(histWebhook, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ embeds: [{ title: '📋 Player History', color: 3447003, description: msg, footer: { text: 'Requested by ' + username } }] })
@@ -580,7 +584,7 @@ function connect() {
           offlineAlertSent = true;
           console.log('[OFFLINE ALERT] Bot has been offline for 2 minutes — sending Discord alert');
           try {
-            await fetch(DISCORD_WEBHOOK, {
+            await fetch(alertWebhook, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ embeds: [{ title: '⚠️ Ruscar Bot OFFLINE', color: 15158332, description: 'The moderation bot has been disconnected for over 2 minutes. Chat is **unmonitored**.', timestamp: new Date().toISOString() }] })
