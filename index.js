@@ -313,6 +313,7 @@ function connect() {
 
         // Check blocklist first
         console.log('[VOICE CHECK] text="' + voiceText + '" blocked=' + containsBlockedWord(voiceText) + ' prisoned=' + prisoned.has(voiceSteamId));
+        if (prisoned.has(voiceSteamId)) return;
         if (containsBlockedWord(voiceText)) {
           await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
           // Send audio recording to Discord recordings channel
