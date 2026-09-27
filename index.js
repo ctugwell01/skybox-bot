@@ -131,17 +131,51 @@ const SPAM_TIMERS = [5, 10, 30];
 let ws;
 let counter = 1;
 
+function isProtectedSelfHarmPhrase(text) {
+  const t = text.toLowerCase();
+  const protectedPatterns = [
+    /\b(?:don't|dont|do not|never|shouldn't|shouldnt|mustn't|mustnt)\s+kill\s+(?:yourself|urself|ur\s+self)\b/,
+    /\bplease\s+(?:don't|dont|do not)\s+kill\s+(?:yourself|urself|ur\s+self)\b/,
+    /\bpromise\s+me\s+you\s+(?:won't|wont|will not)\s+kill\s+(?:yourself|urself|ur\s+self)\b/
+  ];
+  return protectedPatterns.some(function(re) { return re.test(t); });
+}
+
 function containsBlockedWord(text) {
-  if (BLOCKED_WORDS.some(function(w) { return text.includes(w); })) return true;
-  const noSpaces = text.replace(/[\s\-_.,/\\]+/g, '');
-  if (BLOCKED_WORDS.some(function(w) { return noSpaces.includes(w); })) return true;
-  const norm = text.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/[\s\-_.,/\\]+/g,'');
-  if (BLOCKED_WORDS.some(function(w) { return norm.includes(w); })) return true;
-  const words = text.split(/\s+/);
+  const lower = text.toLowerCase();
+  const protectedSelfHarm = isProtectedSelfHarmPhrase(lower);
+
+  function isBlockedMatch(w, haystack) {
+    // Do not treat protective/negated uses of "kill yourself" as violations.
+    if (protectedSelfHarm && ['kill yourself', 'kill ur self'].includes(w)) return false;
+    return haystack.includes(w);
+  }
+
+  if (BLOCKED_WORDS.some(function(w) { return isBlockedMatch(w, lower); })) return true;
+
+  const noSpaces = lower.replace(/[\s\-_.,/\\]+/g, '');
+  if (BLOCKED_WORDS.some(function(w) {
+    const compactWord = w.replace(/[\s\-_.,/\\]+/g, '');
+    if (protectedSelfHarm && ['killyourself', 'killurself'].includes(compactWord)) return false;
+    return noSpaces.includes(compactWord);
+  })) return true;
+
+  const norm = lower.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/[\s\-_.,/\\]+/g,'');
+  if (BLOCKED_WORDS.some(function(w) {
+    const compactWord = w.replace(/[\s\-_.,/\\]+/g, '');
+    if (protectedSelfHarm && ['killyourself', 'killurself'].includes(compactWord)) return false;
+    return norm.includes(compactWord);
+  })) return true;
+
+  const words = lower.split(/\s+/);
   for (let i = 0; i < words.length; i++) {
     for (let j = i + 1; j <= Math.min(i + 3, words.length); j++) {
       const joined = words.slice(i, j).join('');
-      if (BLOCKED_WORDS.some(function(w) { return joined.includes(w); })) return true;
+      if (BLOCKED_WORDS.some(function(w) {
+        const compactWord = w.replace(/[\s\-_.,/\\]+/g, '');
+        if (protectedSelfHarm && ['killyourself', 'killurself'].includes(compactWord)) return false;
+        return joined.includes(compactWord);
+      })) return true;
     }
   }
   return false;
