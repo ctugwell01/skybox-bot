@@ -131,51 +131,17 @@ const SPAM_TIMERS = [5, 10, 30];
 let ws;
 let counter = 1;
 
-function isProtectedSelfHarmPhrase(text) {
-  const t = text.toLowerCase();
-  const protectedPatterns = [
-    /\b(?:don't|dont|do not|never|shouldn't|shouldnt|mustn't|mustnt)\s+kill\s+(?:yourself|urself|ur\s+self)\b/,
-    /\bplease\s+(?:don't|dont|do not)\s+kill\s+(?:yourself|urself|ur\s+self)\b/,
-    /\bpromise\s+me\s+you\s+(?:won't|wont|will not)\s+kill\s+(?:yourself|urself|ur\s+self)\b/
-  ];
-  return protectedPatterns.some(function(re) { return re.test(t); });
-}
-
 function containsBlockedWord(text) {
-  const lower = text.toLowerCase();
-  const protectedSelfHarm = isProtectedSelfHarmPhrase(lower);
-
-  function isBlockedMatch(w, haystack) {
-    // Do not treat protective/negated uses of "kill yourself" as violations.
-    if (protectedSelfHarm && ['kill yourself', 'kill ur self'].includes(w)) return false;
-    return haystack.includes(w);
-  }
-
-  if (BLOCKED_WORDS.some(function(w) { return isBlockedMatch(w, lower); })) return true;
-
-  const noSpaces = lower.replace(/[\s\-_.,/\\]+/g, '');
-  if (BLOCKED_WORDS.some(function(w) {
-    const compactWord = w.replace(/[\s\-_.,/\\]+/g, '');
-    if (protectedSelfHarm && ['killyourself', 'killurself'].includes(compactWord)) return false;
-    return noSpaces.includes(compactWord);
-  })) return true;
-
-  const norm = lower.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/[\s\-_.,/\\]+/g,'');
-  if (BLOCKED_WORDS.some(function(w) {
-    const compactWord = w.replace(/[\s\-_.,/\\]+/g, '');
-    if (protectedSelfHarm && ['killyourself', 'killurself'].includes(compactWord)) return false;
-    return norm.includes(compactWord);
-  })) return true;
-
-  const words = lower.split(/\s+/);
+  if (BLOCKED_WORDS.some(function(w) { return text.includes(w); })) return true;
+  const noSpaces = text.replace(/[\s\-_.,/\\]+/g, '');
+  if (BLOCKED_WORDS.some(function(w) { return noSpaces.includes(w); })) return true;
+  const norm = text.replace(/3/g,'e').replace(/4/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/@/g,'a').replace(/\$/g,'s').replace(/[\s\-_.,/\\]+/g,'');
+  if (BLOCKED_WORDS.some(function(w) { return norm.includes(w); })) return true;
+  const words = text.split(/\s+/);
   for (let i = 0; i < words.length; i++) {
     for (let j = i + 1; j <= Math.min(i + 3, words.length); j++) {
       const joined = words.slice(i, j).join('');
-      if (BLOCKED_WORDS.some(function(w) {
-        const compactWord = w.replace(/[\s\-_.,/\\]+/g, '');
-        if (protectedSelfHarm && ['killyourself', 'killurself'].includes(compactWord)) return false;
-        return joined.includes(compactWord);
-      })) return true;
+      if (BLOCKED_WORDS.some(function(w) { return joined.includes(w); })) return true;
     }
   }
   return false;
@@ -392,9 +358,9 @@ function connect() {
           return;
         }
 
-        // AI slur check
-        const vSlur = await callAI('You are moderating a Rust game server voice chat. Speech-to-text software censors slurs by replacing them with similar sounding words. Does this transcript likely contain a racial slur, hate speech, or threat even if the slur was replaced by a similar word like nerd, bigger, digger, trigger, figure, sugar, mother, etc? Consider the full sentence context.' + getVoiceExamplePrompt() + ' Reply yes or no only. Message: "' + voiceText + '"', 5);
-        addVoiceExample(voiceText, vSlur === 'yes');
+        // AI slur check — require clear contextual evidence to avoid false positives
+        const vSlur = await callAI('You are moderating a Rust game server voice chat. Only answer yes if the transcript itself contains clear evidence of a racial slur, hate speech, homophobic abuse, or discriminatory language targeting a protected group. Do NOT flag normal conversation merely because an innocent word could sound similar to a slur. Speech-to-text mistakes are possible, but phonetic similarity alone is NOT enough. If the sentence makes normal sense without hate speech, answer no. Require strong contextual evidence before answering yes.' + getVoiceExamplePrompt() + ' Reply yes or no only. Message: "' + voiceText + '"', 5);
+        // Do not auto-learn AI decisions. Only admins should teach voice examples via !voiceteach.
         if (vSlur === 'yes') {
           await prisonPlayer(voiceSteamId, voiceUsername, 'HateSpeech');
           if (DISCORD_VOICE_WEBHOOK) {
@@ -528,8 +494,8 @@ function connect() {
         }
         const vThreat = await callAI("Rust game server voice chat moderation. Does this contain a REAL serious threat like telling someone to kill themselves or explicit violent threats toward a real person outside of gameplay? Gaming callouts are NOT threats. Answer yes or no only. Message: \"" + voiceText + "\"", 5);
         if (vThreat === 'yes') { await prisonPlayer(voiceUserId, voiceUsername, 'Threats'); return; }
-        const vSlur = await callAI('You are a multilingual content moderator. Does this voice chat transcript contain racial slurs, hate speech or discriminatory language in any language?' + getVoiceExamplePrompt() + ' Reply yes or no only. Message: "' + voiceText + '"', 5);
-        addVoiceExample(voiceText, vSlur === 'yes');
+        const vSlur = await callAI('You are a multilingual content moderator for Rust voice chat. Only answer yes when the transcript itself contains clear evidence of a racial slur, hate speech, homophobic abuse, or discriminatory language targeting a protected group. Do NOT infer a slur from an innocent word merely because it sounds similar. If the transcript is ordinary conversation and makes sense without hate speech, answer no. Require strong contextual evidence before answering yes.' + getVoiceExamplePrompt() + ' Reply yes or no only. Message: "' + voiceText + '"', 5);
+        // Do not auto-learn AI decisions. Only admins should teach voice examples via !voiceteach.
         if (vSlur === 'yes') {
           if (warnedPlayers.has(voiceUserId)) { await prisonPlayer(voiceUserId, voiceUsername, 'HateSpeech'); warnedPlayers.delete(voiceUserId); }
           else { warnedPlayers.add(voiceUserId); sendRcon('say [Ruscar Bot]: WARNING ' + voiceUsername + ' - inappropriate language in voice chat. Next offence = prison.'); }
