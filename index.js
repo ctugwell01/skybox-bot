@@ -118,6 +118,7 @@ const serverReplyCooldowns = {}; // server-wide cooldown per category
 const releaseCooldowns = new Set();
 const warnedPlayers   = new Set();
 const messageHistory  = {};
+const knownPlayerIds  = {}; // username (lowercase) -> Steam ID, learned from structured chat
 
 try { if (fs.existsSync(OFFENCES_FILE)) { const l = JSON.parse(fs.readFileSync(OFFENCES_FILE, 'utf8')); Object.assign(spamOffences, l); console.log('Loaded offences for ' + Object.keys(l).length + ' players'); } } catch(e) {}
 function saveOffences() { fs.writeFileSync(OFFENCES_FILE, JSON.stringify(spamOffences, null, 2)); }
@@ -150,6 +151,59 @@ function containsBlockedWord(text) {
 function extractPlayerMessage(raw) {
   const parts = raw.split(': ');
   return parts.length > 1 ? parts[parts.length - 1].trim() : raw.trim();
+}
+
+function rememberPlayer(username, userId) {
+  if (!username || !userId || userId === '0') return;
+  knownPlayerIds[username.trim().toLowerCase()] = String(userId);
+}
+
+function parseGenericChatLine(raw) {
+  const line = String(raw || '').trim();
+
+  // Some Rust/RCON setups emit team/global chat as Generic console lines instead
+  // of structured Chat events, e.g. "[TEAM] 5HeadNN: message".
+  const tagged = line.match(/\[(TEAM|GLOBAL|CHAT)\]\s*([^:]+):\s*(.+)$/i);
+  if (!tagged) return null;
+
+  const steamIdMatch = line.match(/\b(7656119\d{10})\b/);
+  let username = tagged[2].trim();
+  username = username.replace(/\s*\(7656119\d{10}\)\s*$/, '').trim();
+
+  const userId = steamIdMatch
+    ? steamIdMatch[1]
+    : (knownPlayerIds[username.toLowerCase()] || '');
+
+  return {
+    channel: tagged[1].toUpperCase(),
+    username: username,
+    userId: userId,
+    text: tagged[3].trim()
+  };
+}
+
+async function sendUnresolvedChatSlurAlert(username, text, channel) {
+  const alertWebhook = DISCORD_PRISON_LOG_WEBHOOK || DISCORD_WEBHOOK;
+  if (!alertWebhook) return;
+
+  try {
+    await fetch(alertWebhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embeds: [{
+        title: 'Chat Slur Detected',
+        color: 15158332,
+        description: 'A blocked term was detected in a ' + channel + ' chat line, but no Steam ID was available to auto-prison the player.',
+        fields: [
+          { name: 'Player', value: username || 'Unknown', inline: true },
+          { name: 'Message', value: text || '(empty)', inline: false }
+        ],
+        timestamp: new Date().toISOString()
+      }] })
+    });
+  } catch(e) {
+    console.error('Discord unresolved chat alert error:', e.message);
+  }
 }
 
 function getSpamMinutes(userId) {
@@ -398,6 +452,27 @@ function connect() {
         return;
       }
 
+      // Fallback for servers/plugins that print team/global chat as Generic lines.
+      // This specifically catches lines such as: [TEAM] player: blocked-term
+      if (msg.Type === 'Generic' && msg.Message) {
+        const genericChat = parseGenericChatLine(msg.Message);
+        if (genericChat) {
+          const genericText = extractPlayerMessage(genericChat.text).toLowerCase();
+          console.log('[GENERIC CHAT] [' + genericChat.channel + '] ' + genericChat.username + ': ' + genericText);
+
+          if (containsBlockedWord(genericText)) {
+            console.log('[GENERIC CHAT BLOCKLIST] caught: ' + genericText);
+            if (genericChat.userId) {
+              rememberPlayer(genericChat.username, genericChat.userId);
+              await prisonPlayer(genericChat.userId, genericChat.username, 'HateSpeech');
+            } else {
+              await sendUnresolvedChatSlurAlert(genericChat.username, genericText, genericChat.channel);
+            }
+            return;
+          }
+        }
+      }
+
       if (msg.Type !== 'Chat') return;
       let inner;
       try { inner = JSON.parse(msg.Message); } catch { return; }
@@ -405,6 +480,7 @@ function connect() {
       const username = inner.Username || '';
       const userId   = inner.UserId || '';
       if (!rawText || userId === '0' || username === 'SERVER') return;
+      rememberPlayer(username, userId);
 
       const text = extractPlayerMessage(rawText).toLowerCase();
       console.log('[CHAT] ' + username + ': ' + text);
